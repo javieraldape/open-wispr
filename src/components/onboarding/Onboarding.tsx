@@ -39,30 +39,26 @@ const Onboarding: React.FC<OnboardingProps> = ({ onModelSelected }) => {
 
   // Curate the download list: legacy (.bin/ONNX) downloads are deprecated and
   // never shown here (they still appear in the compatible section if already on
-  // disk). The catalog arrives rank-sorted, so the first two recommended models
-  // are the featured picks — currently Parakeet Unified (English) and Nemotron
-  // Streaming (multilingual). Everything else hides behind "Show all".
-  const { downloadable, topPicks, otherRecommended, rest } = useMemo(() => {
+  // disk). The catalog ships 60+ models, so surfacing them all up front is
+  // overwhelming. Instead we pre-select a single recommended default — the
+  // "hero" — and hide the rest behind a collapsed disclosure.
+  const { downloadable, heroModel, otherModels } = useMemo(() => {
     const downloadable = models.filter(
       (m: ModelInfo) => !m.is_downloaded && !isLegacySource(m),
     );
-    const recommended = downloadable.filter((m: ModelInfo) => m.is_recommended);
-    // `models` arrives in editorial rank order (the backend sorts by rank_of,
-    // then accuracy), so keep that order here: ranked-but-not-recommended models
-    // surface first, then the unranked tail by accuracy.
-    const rest = downloadable.filter((m: ModelInfo) => !m.is_recommended);
-    return {
-      downloadable,
-      topPicks: recommended.slice(0, 2),
-      otherRecommended: recommended.slice(2),
-      rest,
-    };
+    // `models` arrives in editorial rank order (backend sorts by rank_of, then
+    // accuracy), so the first recommended model is the intended default. Fall
+    // back to the first downloadable model so there is always a clear hero and
+    // the full catalog never dumps by default even if nothing is flagged.
+    const heroModel =
+      downloadable.find((m: ModelInfo) => m.is_recommended) ??
+      downloadable[0] ??
+      null;
+    const otherModels = heroModel
+      ? downloadable.filter((m: ModelInfo) => m.id !== heroModel.id)
+      : downloadable;
+    return { downloadable, heroModel, otherModels };
   }, [models]);
-
-  const hasRecommended = topPicks.length > 0 || otherRecommended.length > 0;
-  // When nothing recommended remains to download (e.g. all already on disk),
-  // there is no curated subset to collapse, so just show the full list.
-  const showRest = showAll || !hasRecommended;
 
   // Watch for the selected model to finish downloading + verifying + extracting
   useEffect(() => {
@@ -192,36 +188,26 @@ const Onboarding: React.FC<OnboardingProps> = ({ onModelSelected }) => {
                 </h2>
               </div>
 
-              {topPicks.map((model: ModelInfo) => (
+              {/* Pre-selected default: the recommended model, shown as a single
+                  prominent hero so new users can proceed in one click. */}
+              {heroModel && (
                 <ModelCard
-                  key={model.id}
-                  model={model}
+                  key={heroModel.id}
+                  model={heroModel}
                   variant="featured"
-                  status={getModelStatus(model.id)}
+                  status={getModelStatus(heroModel.id)}
                   disabled={isBusy}
                   onSelect={handleDownloadModel}
                   onDownload={handleDownloadModel}
-                  downloadProgress={getModelDownloadProgress(model.id)}
-                  downloadSpeed={getModelDownloadSpeed(model.id)}
-                  showRecommended={false}
+                  downloadProgress={getModelDownloadProgress(heroModel.id)}
+                  downloadSpeed={getModelDownloadSpeed(heroModel.id)}
+                  showRecommended
                 />
-              ))}
+              )}
 
-              {otherRecommended.map((model: ModelInfo) => (
-                <ModelCard
-                  key={model.id}
-                  model={model}
-                  status={getModelStatus(model.id)}
-                  disabled={isBusy}
-                  onSelect={handleDownloadModel}
-                  onDownload={handleDownloadModel}
-                  downloadProgress={getModelDownloadProgress(model.id)}
-                  downloadSpeed={getModelDownloadSpeed(model.id)}
-                  showRecommended={false}
-                />
-              ))}
-
-              {hasRecommended && rest.length > 0 && (
+              {/* Everything else stays collapsed by default so the 60+ model
+                  catalog doesn't overwhelm the first-run choice. */}
+              {otherModels.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setShowAll((v) => !v)}
@@ -240,8 +226,8 @@ const Onboarding: React.FC<OnboardingProps> = ({ onModelSelected }) => {
                 </button>
               )}
 
-              {showRest &&
-                rest.map((model: ModelInfo) => (
+              {showAll &&
+                otherModels.map((model: ModelInfo) => (
                   <ModelCard
                     key={model.id}
                     model={model}

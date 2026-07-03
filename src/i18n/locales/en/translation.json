@@ -128,15 +128,21 @@
     "permissions": {
       "title": "Permissions Required",
       "description": "OpenWispr needs a couple of permissions to work properly.",
+      "keyboardTitle": "Enable keyboard control",
+      "keyboardDescription": "OpenWispr needs two macOS permissions so it can detect your shortcut and type for you. Grant both to continue.",
       "microphone": {
-        "title": "Microphone Access",
-        "description": "Required to hear your voice for transcription."
+        "title": "Microphone",
+        "description": "Lets OpenWispr hear your voice to transcribe it. Audio never leaves your Mac."
       },
       "accessibility": {
-        "title": "Accessibility Access",
-        "description": "Required to detect shortcuts and type transcribed text into your applications."
+        "title": "Accessibility",
+        "description": "Lets OpenWispr type transcribed text into whatever app you're using."
       },
-      "grant": "Grant Permission",
+      "inputMonitoring": {
+        "title": "Input Monitoring",
+        "description": "Lets OpenWispr detect your keyboard shortcut so you can dictate from anywhere."
+      },
+      "grant": "Open System Settings",
       "granted": "Granted",
       "waiting": "Waiting...",
       "allGranted": "All set!",
