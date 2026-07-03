@@ -9,6 +9,12 @@ use crate::utils::cancel_current_operation;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
+#[cfg(target_os = "macos")]
+#[link(name = "IOKit", kind = "framework")]
+extern "C" {
+    fn IOHIDRequestAccess(request: u32) -> bool;
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn cancel_operation(app: AppHandle) {
@@ -185,4 +191,33 @@ pub fn initialize_shortcuts(app: AppHandle) -> Result<(), String> {
 
     log::info!("Shortcuts initialized successfully");
     Ok(())
+}
+
+/// Request macOS Input Monitoring access.
+///
+/// Opening the System Settings pane alone does not always register this app in
+/// the Input Monitoring list. Calling IOHIDRequestAccess first asks TCC to add
+/// the current app identity, then the Settings pane lets the user grant it.
+#[specta::specta]
+#[tauri::command]
+pub fn request_input_monitoring_access() -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        const K_IOHID_REQUEST_TYPE_LISTEN_EVENT: u32 = 1;
+        let granted = unsafe { IOHIDRequestAccess(K_IOHID_REQUEST_TYPE_LISTEN_EVENT) };
+
+        if !granted {
+            std::process::Command::new("open")
+                .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")
+                .output()
+                .map_err(|error| error.to_string())?;
+        }
+
+        Ok(granted)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(true)
+    }
 }

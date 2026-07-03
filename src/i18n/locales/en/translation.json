@@ -145,10 +145,16 @@
       "grant": "Open System Settings",
       "granted": "Granted",
       "waiting": "Waiting...",
+      "restartHelp": {
+        "title": "Still waiting?",
+        "description": "macOS may need OpenWispr to restart after permission changes, especially after reinstalling a development build.",
+        "action": "Restart OpenWispr"
+      },
       "allGranted": "All set!",
       "errors": {
         "checkFailed": "Failed to check permissions. Please try again.",
-        "requestFailed": "Failed to request permission. Please try again."
+        "requestFailed": "Failed to request permission. Please try again.",
+        "restartFailed": "Failed to restart OpenWispr. Quit and open it again."
       }
     }
   },
