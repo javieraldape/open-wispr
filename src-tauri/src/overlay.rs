@@ -39,10 +39,10 @@ tauri_panel! {
 // where the card sits — only OVERLAY_TOP_OFFSET / OVERLAY_BOTTOM_OFFSET do. Keep
 // these in sync with the CSS card geometry.
 //
-// Compact overlay (Minimal / transcribing / processing): the fixed 120x29 pill
-// stays the same size across compact states.
-const OVERLAY_WIDTH: f64 = 120.0;
-const OVERLAY_HEIGHT: f64 = 29.0;
+// Compact overlay (Minimal / transcribing / processing): the fixed 148x34
+// Quiet Native Ribbon stays the same size across compact states.
+const OVERLAY_WIDTH: f64 = 148.0;
+const OVERLAY_HEIGHT: f64 = 34.0;
 
 // Actual is 394x118, just a little extra
 const OVERLAY_STREAM_WIDTH: f64 = 400.0;
