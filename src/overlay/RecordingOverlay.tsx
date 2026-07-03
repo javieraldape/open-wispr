@@ -12,7 +12,6 @@ import type {
 } from "@/bindings";
 import i18n, { syncLanguageFromSettings } from "@/i18n";
 import { getLanguageDirection } from "@/lib/utils/rtl";
-import { BrandMark } from "@/components/brand/OpenWisprBrand";
 
 type OverlayState =
   | "recording"
@@ -26,17 +25,47 @@ type OverlayState =
 // Number of reactive bars in the waveform (the simple, smoothed style shared by
 // every overlay form). Mic levels arrive as 16 FFT buckets; we take the first N.
 const WAVE_BARS = 9;
+const MARK_LEVEL_INDEXES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 7, 6, 5] as const;
+// Waveform sweep geometry (px). The active bars pulse between LOW (trough, just
+// above the idle dots) and a crest that scales with voice energy from HIGH_MIN
+// (barely-active) up to HIGH_MAX (loud). GAMMA (<1) makes the response feel
+// snappier at conversational volumes.
+const COMPACT_WAVE_LOW = 4;
+const COMPACT_WAVE_HIGH_MIN = 6;
+const COMPACT_WAVE_HIGH_MAX = 23;
+const COMPACT_WAVE_GAMMA = 0.7;
+const COMPACT_WAVE_ACTIVE_THRESHOLD = 0.05;
+
+// Adaptive gate: keep silence idle by activating only when energy rises well
+// above the ambient floor (learned live), so it works across mics/rooms.
+const NOISE_GATE_RATIO = 2.2; // activate when energy exceeds ambient x this
+const NOISE_GATE_MARGIN = 0.012;
+
+// Absolute loudness gradient: raw voice energy is mapped across this input range
+// to bar height, so quiet speech = short bars and loud speech = tall bars. These
+// two numbers are the sensitivity knobs — widen or shift the range if the meter
+// reads over- or under-sensitive on a given mic.
+const ENERGY_IN_MIN = 0.15; // rawEnergy at/below this -> shortest active bars
+const ENERGY_IN_MAX = 0.6; // rawEnergy at/above this -> full-height bars
+// Meter attack/release. A slow attack means a lone noise spike can't reach the
+// active threshold in one frame — only sustained energy (voice) builds up — so
+// silence stays idle even right after speech.
+const ENERGY_ATTACK = 0.22;
+const ENERGY_RELEASE = 0.35;
 
 // How long the "linger" Edit pill stays up before the overlay would normally
 // hide, in milliseconds. Mirrors the design spec's "linger 4s" decision.
 const LINGER_MS = 4000;
 const FADE_MS = 200;
 
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
 const RecordingOverlay: React.FC = () => {
   const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(false);
   const [state, setState] = useState<OverlayState>("recording");
   const [levels, setLevels] = useState<number[]>(Array(WAVE_BARS).fill(0));
+  const [compactEnergy, setCompactEnergy] = useState(0);
   const [streamText, setStreamText] = useState<StreamTextEvent>({
     committed: "",
     tentative: "",
@@ -58,6 +87,9 @@ const RecordingOverlay: React.FC = () => {
   const [lingerToken, setLingerToken] = useState(0);
 
   const smoothedLevelsRef = useRef<number[]>(Array(16).fill(0));
+  const compactEnergyRef = useRef(0);
+  // Adaptive ambient floor used by the gate (see constants above).
+  const noiseFloorRef = useRef(0.02);
   // Live-text scroll-back: the text region "sticks" to the newest line while the
   // user is at the bottom; if they scroll up to read history, auto-follow pauses
   // until they scroll back down.
@@ -117,6 +149,11 @@ const RecordingOverlay: React.FC = () => {
         if (overlayState === "recording" || overlayState === "streaming") {
           setStreamText({ committed: "", tentative: "" });
         }
+        if (overlayState === "recording") {
+          compactEnergyRef.current = 0;
+          noiseFloorRef.current = 0.02;
+          setCompactEnergy(0);
+        }
         if (overlayState === "streaming") {
           setPhase("listening");
           setWorkKind("transcribing");
@@ -142,10 +179,46 @@ const RecordingOverlay: React.FC = () => {
         // bars for the shared waveform.
         const smoothed = smoothedLevelsRef.current.map((prev, i) => {
           const target = newLevels[i] || 0;
-          return prev * 0.7 + target * 0.3;
+          return prev * 0.55 + target * 0.45;
         });
         smoothedLevelsRef.current = smoothed;
         setLevels(smoothed.slice(0, WAVE_BARS));
+
+        const vocalLevels = smoothed.slice(0, WAVE_BARS);
+        const peak = Math.max(...vocalLevels);
+        const average =
+          vocalLevels.reduce((sum, value) => sum + value, 0) /
+          Math.max(1, vocalLevels.length);
+        // Average-dominant: voice lights up many bands (high average) while
+        // silence only spikes isolated bins (low average, high peak), so
+        // weighting toward the average rejects noise spikes.
+        const rawEnergy = clamp01(peak * 0.2 + average * 0.95);
+
+        // Adaptive ambient floor: drop instantly to any new quiet minimum, creep
+        // up only very slowly, so speech never inflates the gate.
+        noiseFloorRef.current =
+          rawEnergy < noiseFloorRef.current
+            ? rawEnergy
+            : noiseFloorRef.current * 0.999 + rawEnergy * 0.001;
+        const gated =
+          rawEnergy > noiseFloorRef.current * NOISE_GATE_RATIO + NOISE_GATE_MARGIN;
+
+        // Absolute loudness gradient: map raw energy across the calibrated input
+        // range so louder voice = taller bars. Zeroed below the gate so ambient
+        // noise never lifts the bars off their idle dots.
+        const norm = clamp01(
+          (rawEnergy - ENERGY_IN_MIN) / (ENERGY_IN_MAX - ENERGY_IN_MIN),
+        );
+        const displayEnergy = gated ? norm : 0;
+
+        const energyAlpha =
+          displayEnergy > compactEnergyRef.current
+            ? ENERGY_ATTACK
+            : ENERGY_RELEASE;
+        compactEnergyRef.current =
+          compactEnergyRef.current * (1 - energyAlpha) +
+          displayEnergy * energyAlpha;
+        setCompactEnergy(compactEnergyRef.current);
       });
 
       const unlistenStream = await events.streamTextEvent.listen((event) => {
@@ -345,19 +418,35 @@ const RecordingOverlay: React.FC = () => {
     );
   }
 
-  // ---- Minimal overlay (v4): exactly one row at a time, no timer, no text,
-  // no mic-level-driven bars —
-  //   recording:    the brand mark, breathing
-  //   transcribing/processing: a quiet 16px spinner, nothing else
-  //   linger:       black "Edit" pill + hotkey keycap badge
-  // The pill animates its width between states; height is constant (44px, see
-  // --ov-base-h) in every one of them.
+  // ---- Minimal overlay (v4): exactly one row at a time, no timer, no text.
+  // The compact pill keeps one fixed size across recording, working, and linger.
   const working = state === "transcribing" || state === "processing";
   const linger = state === "linger";
 
+  const compactHigh =
+    COMPACT_WAVE_HIGH_MIN +
+    Math.pow(clamp01(compactEnergy), COMPACT_WAVE_GAMMA) *
+      (COMPACT_WAVE_HIGH_MAX - COMPACT_WAVE_HIGH_MIN);
+  // Louder voice sweeps a touch faster (1040ms quiet -> 760ms loud).
+  const compactDuration = 1040 - clamp01(compactEnergy) * 280;
+  const compactActive = compactEnergy > COMPACT_WAVE_ACTIVE_THRESHOLD;
+  const compactWaveStyle = {
+    "--swave-low": `${COMPACT_WAVE_LOW}px`,
+    "--swave-high": `${compactHigh}px`,
+    "--swave-duration": `${compactDuration}ms`,
+  } as React.CSSProperties;
+
   const compactRecordingRow = (
     <div className="srow" role="status" aria-label={t("overlay.recording")}>
-      <BrandMark size={24} strokeWidth={2.4} className="smark" />
+      <div
+        className={`swave-mark ${compactActive ? "active" : ""}`}
+        style={compactWaveStyle}
+        aria-hidden="true"
+      >
+        {MARK_LEVEL_INDEXES.map((_, i) => (
+          <i key={i} style={{ "--i": i } as React.CSSProperties} />
+        ))}
+      </div>
     </div>
   );
 

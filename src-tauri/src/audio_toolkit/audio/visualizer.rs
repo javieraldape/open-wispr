@@ -1,10 +1,18 @@
 use rustfft::{num_complex::Complex32, Fft, FftPlanner};
 use std::sync::Arc;
 
-const DB_MIN: f32 = -55.0;
-const DB_MAX: f32 = -8.0;
+// Self-calibrating level mapping: each band's level is measured as dB ABOVE its
+// own adaptive noise floor (SNR), then mapped to 0-1. This replaces the old
+// fixed absolute dB window (DB_MIN/DB_MAX), which clamped quiet / low-gain mics
+// to zero. SNR-relative mapping responds to signal-above-ambient, so it works
+// the same on a hot studio mic and a quiet laptop mic.
+const SNR_START_DB: f32 = 10.0; // must rise this far above ambient to register
+const SNR_RANGE_DB: f32 = 18.0; // ...and this far above ambient reads as full
 const GAIN: f32 = 1.3;
 const CURVE_POWER: f32 = 0.7;
+// Noise floor starts high (dBFS) so it converges DOWN to each mic's real ambient
+// within a few frames; see the adaptation in `feed`.
+const NOISE_FLOOR_INIT: f32 = 0.0;
 
 pub struct AudioVisualiser {
     fft: Arc<dyn Fft<f32>>,
@@ -70,7 +78,7 @@ impl AudioVisualiser {
             window,
             bucket_ranges,
             fft_input: vec![Complex32::new(0.0, 0.0); window_size],
-            noise_floor: vec![-40.0; buckets], // Initialize to reasonable noise floor
+            noise_floor: vec![NOISE_FLOOR_INIT; buckets], // converges down to real ambient
             buffer: Vec::with_capacity(window_size * 2),
             window_size,
             buckets,
@@ -118,22 +126,32 @@ impl AudioVisualiser {
 
             let avg_power = power_sum / (end_bin - start_bin) as f32;
 
-            // Convert to dB with proper scaling
+            // Convert to dB (~dBFS: 0 dB ≈ full-scale sine concentrated in a bin).
+            // Clamp the near-silent sentinel so a momentarily empty band can't
+            // drag the adaptive floor implausibly low.
             let db = if avg_power > 1e-12 {
-                20.0 * (avg_power.sqrt() / self.window_size as f32).log10()
+                (20.0 * (avg_power.sqrt() / self.window_size as f32).log10()).max(-100.0)
             } else {
-                -80.0 // Very low floor for zero power
+                -100.0
             };
 
-            // Only update noise floor when signal is quiet (below current floor + 10dB)
-            if db < self.noise_floor[bucket_idx] + 10.0 {
-                const NOISE_ALPHA: f32 = 0.001; // Very slow adaptation
-                self.noise_floor[bucket_idx] =
-                    NOISE_ALPHA * db + (1.0 - NOISE_ALPHA) * self.noise_floor[bucket_idx];
-            }
+            // Adaptive per-bucket noise floor: track the typical quiet level by
+            // easing downward and creeping upward only slowly, so sustained
+            // speech never inflates it and random dips don't collapse it.
+            // Starting high, this converges down to the real ambient in ~1s on
+            // any mic.
+            let nf = self.noise_floor[bucket_idx];
+            self.noise_floor[bucket_idx] = if db < nf {
+                0.2 * db + 0.8 * nf
+            } else {
+                0.997 * nf + 0.003 * db
+            };
 
-            // Map configurable dB range to 0-1 with gain and curve shaping
-            let normalized = ((db - DB_MIN) / (DB_MAX - DB_MIN)).clamp(0.0, 1.0);
+            // Level = how far this band rises above its own noise floor (dB),
+            // mapped to 0-1 with gain + curve shaping. Self-calibrating, so it
+            // no longer depends on the absolute mic level.
+            let snr = db - self.noise_floor[bucket_idx];
+            let normalized = ((snr - SNR_START_DB) / SNR_RANGE_DB).clamp(0.0, 1.0);
             buckets[bucket_idx] = (normalized * GAIN).powf(CURVE_POWER).clamp(0.0, 1.0);
         }
 
@@ -151,6 +169,6 @@ impl AudioVisualiser {
     pub fn reset(&mut self) {
         self.buffer.clear();
         // Reset noise floor to initial values
-        self.noise_floor.fill(-40.0);
+        self.noise_floor.fill(NOISE_FLOOR_INIT);
     }
 }

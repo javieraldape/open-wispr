@@ -24,19 +24,20 @@
   --s-faint: #9a9a9a;
   --s-border: color-mix(in srgb, var(--color-mid-gray) 22%, transparent);
   --s-hair: color-mix(in srgb, var(--color-mid-gray) 12%, transparent);
+  --s-compact-surface: #f6f4ef;
+  --s-compact-border: rgba(17, 17, 17, 0.1);
 
   /* Card geometry — single source of truth for the visible overlay sizes. The
      native overlay window (overlay.rs) is sized from these: it must be at least
-     the card's max footprint (--ov-work-w for compact, --ov-open-w for Live),
+     the card's max footprint (--ov-compact-w for compact, --ov-open-w for Live),
      since the card is anchored flush to the screen edge in CSS. Keep overlay.rs
      in sync when these change. */
-  --ov-rest-w: 172px; /* resting compact pill (recording / linger) */
   --ov-pill-w: 184px; /* base width / Live pill before it opens or collapses */
   --ov-work-w: 216px; /* working pill (transcribing / polishing) -- wide enough to
-                         center longer labels; shared by Live (collapsed) + minimal */
+                         center longer labels; Live collapsed only */
   --ov-open-w: 392px; /* Live panel, expanded */
-  /* v4: CONSTANT 44px pill height in every compact state (recording, working,
-     linger) — see design spec Surface 2. Do not vary per-state. */
+  --ov-compact-w: 120px; /* fixed compact pill width across every compact state */
+  --ov-compact-h: 29px;
   --ov-base-h: 44px; /* control-row height (.sbase) */
   --ov-cap-max-h: 64px; /* max height of the scrolling live-text region */
 }
@@ -121,6 +122,7 @@
 
 /* Shared base card. Flat: theme surface + hairline border, no shadow or blur. */
 .scard {
+  box-sizing: border-box;
   width: var(--ov-pill-w);
   border-radius: 24px;
   overflow: hidden;
@@ -165,22 +167,24 @@
   border-radius: 18px;
 }
 
-/* Compact form: fixed widths so state changes are an animatable width transition
-   (intrinsic max-content can't be transitioned). Recording and linger share the
-   resting width; working (transcribing/processing) is roomy enough for the
-   spinner to sit centered. Height is CONSTANT (--ov-base-h, 44px) across every
-   compact state per the v4 spec — only width and radius change. */
+/* Compact form: one fixed footprint across recording, working, and linger so
+   processing state changes never resize the bottom-center button. */
 .scard.compact {
   animation: none;
-  width: var(--ov-rest-w);
-  border-radius: 22px;
+  width: var(--ov-compact-w);
+  height: var(--ov-compact-h);
+  border-radius: 999px;
+  background: var(--s-compact-surface);
+  border-color: var(--s-compact-border);
+  --s-ink: #111111;
+  --s-paper: var(--s-compact-surface);
+  --s-hair: rgba(17, 17, 17, 0.12);
 }
 .scard.compact.cworking {
-  width: var(--ov-work-w);
+  width: var(--ov-compact-w);
 }
 .scard.compact.clinger {
-  width: max-content;
-  min-width: var(--ov-rest-w);
+  width: var(--ov-compact-w);
 }
 
 /* text region — auto-height open via grid-rows trick; region fades as a whole */
@@ -384,69 +388,75 @@
 }
 
 /* ============================================================
-   v4 compact overlay rows — recording (breathing mark), working (spinner-only),
-   and linger (Edit pill + hotkey badge). Each row fills the full 44px pill with
-   its content centered; no timer, no text label, no mic-level bars. See design
-   spec Surface 2 / wireframes.html "recording — the logo, breathing".
+   v4 compact overlay rows — recording (level-reactive mark), working
+   (spinner-only), and linger (Edit pill + hotkey badge). Each row fills the
+   compact pill with its content centered; no timer and no text label in the
+   active recording state.
    ============================================================ */
 .srow {
-  height: var(--ov-base-h);
-  padding: 0 14px;
+  height: 100%;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-/* Recording: the actual brand mark, breathing. Exact bar geometry from
-   .context/brand (x=5/17/29/41/53, y=23/15/7/18/25, h=18/34/50/28/14, w=6, rx=3).
-   Each rect oscillates scaleY 0.86..1.14 about its own center, staggered 0.18s,
-   1.4s ease-in-out — paused at any instant it is still the logo silhouette. */
-.smark rect {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: smark-breathe 1.4s ease-in-out infinite;
-  fill: none;
-  stroke: var(--s-ink);
+/* Recording: filled bars span most of the compact button, with height driven
+   from live mic levels. */
+.swave-mark {
+  width: 96px;
+  height: 23px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--s-ink);
+  /* Idle resting height: all bars sit as a row of tiny, equal dots when there's
+     no voice. Decoupled from --swave-low (the active pulse's trough) so idle can
+     be very tiny without shrinking the active animation. */
+  --swave-rest: 3px;
+  --swave-low: 4px;
+  --swave-high: 23px;
+  --swave-duration: 900ms;
 }
-.smark rect:nth-child(1) {
-  animation-delay: 0s;
+.swave-mark i {
+  display: block;
+  flex: none;
+  width: 3px;
+  height: var(--swave-rest);
+  border-radius: 2px;
+  background: currentColor;
+  /* Ease the collapse from an active pulse back down to the tiny idle row. */
+  transition: height 140ms ease;
 }
-.smark rect:nth-child(2) {
-  animation-delay: 0.18s;
+.swave-mark.active i {
+  animation: swave-pulse var(--swave-duration) ease-in-out infinite;
+  animation-delay: calc(var(--i) * -72ms);
 }
-.smark rect:nth-child(3) {
-  animation-delay: 0.36s;
-}
-.smark rect:nth-child(4) {
-  animation-delay: 0.54s;
-}
-.smark rect:nth-child(5) {
-  animation-delay: 0.72s;
-}
-@keyframes smark-breathe {
+@keyframes swave-pulse {
   0%,
   100% {
-    transform: scaleY(0.86);
+    height: var(--swave-low);
   }
-  50% {
-    transform: scaleY(1.14);
+  45% {
+    height: var(--swave-high);
   }
 }
 /* Respect reduced motion: render a static mark, no animation. */
 @media (prefers-reduced-motion: reduce) {
-  .smark rect {
+  .swave-mark.active i {
     animation: none;
-    transform: none;
+    height: calc((var(--swave-low) + var(--swave-high)) / 2);
   }
 }
 
 /* Working (transcribing / processing): a quiet 16px monochrome ring spinner,
    nothing else — no label. */
 .sspin-mono {
-  width: 16px;
-  height: 16px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
-  border: 2px solid var(--s-hair);
+  border: 1.5px solid var(--s-hair);
   border-top-color: var(--s-ink);
   animation: sspin 0.8s linear infinite;
   flex: none;
@@ -462,20 +472,20 @@
 .slinger {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 .seditbtn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 13px;
+  gap: 3px;
+  height: 22px;
+  padding: 0 7px;
   border: none;
-  border-radius: 14px;
+  border-radius: 10px;
   background: var(--s-ink);
   color: var(--s-paper);
   font-family: var(--s-font);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 600;
   cursor: pointer;
   transition: transform 100ms ease;
@@ -487,17 +497,17 @@
   transform: scale(0.97);
 }
 .seditbtn svg {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   display: block;
 }
 .skeycap {
   font-family: var(--s-mono-font);
-  font-size: 11px;
+  font-size: 8px;
   color: var(--s-muted);
   background: var(--s-hair);
   border: 1px solid var(--s-border);
-  border-radius: 4px;
-  padding: 2px 6px;
+  border-radius: 3px;
+  padding: 1px 4px;
   white-space: nowrap;
 }
