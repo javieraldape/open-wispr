@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { invoke } from "@tauri-apps/api/core";
 import { platform } from "@tauri-apps/plugin-os";
+import { relaunch } from "@tauri-apps/plugin-process";
 import {
   checkAccessibilityPermission,
   checkInputMonitoringPermission,
   requestAccessibilityPermission,
-  requestInputMonitoringPermission,
   checkMicrophonePermission,
   requestMicrophonePermission,
 } from "tauri-plugin-macos-permissions-api";
@@ -112,8 +113,12 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
   });
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restartHelpTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const errorCountRef = useRef<number>(0);
   const MAX_POLLING_ERRORS = 3;
+  const RESTART_HELP_DELAY_MS = 15_000;
 
   const isMacOS = permissionPlatform === "macos";
   const isWindows = permissionPlatform === "windows";
@@ -156,6 +161,33 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
     });
   }, []);
 
+  const clearRestartHelpTimeout = useCallback(() => {
+    if (restartHelpTimeoutRef.current) {
+      clearTimeout(restartHelpTimeoutRef.current);
+      restartHelpTimeoutRef.current = null;
+    }
+  }, []);
+
+  const [showRestartHelp, setShowRestartHelp] = useState(false);
+
+  const scheduleRestartHelp = useCallback(() => {
+    clearRestartHelpTimeout();
+    setShowRestartHelp(false);
+
+    restartHelpTimeoutRef.current = setTimeout(() => {
+      setShowRestartHelp(true);
+    }, RESTART_HELP_DELAY_MS);
+  }, [clearRestartHelpTimeout]);
+
+  const restartApp = async () => {
+    try {
+      await relaunch();
+    } catch (error) {
+      console.error("Failed to relaunch after permission grant:", error);
+      toast.error(t("onboarding.permissions.errors.restartFailed"));
+    }
+  };
+
   // Check platform and permission status on mount
   useEffect(() => {
     const currentPlatform = platform();
@@ -189,6 +221,8 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
 
           if (accessibilityGranted && inputMonitoringGranted) {
             initializeKeyboard();
+            clearRestartHelpTimeout();
+            setShowRestartHelp(false);
           }
 
           setPermissions({
@@ -308,6 +342,8 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
               prev.inputMonitoring !== "granted")
           ) {
             initializeKeyboard();
+            clearRestartHelpTimeout();
+            setShowRestartHelp(false);
           }
 
           return next;
@@ -359,8 +395,9 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
+      clearRestartHelpTimeout();
     };
-  }, []);
+  }, [clearRestartHelpTimeout]);
 
   const handleGrantMicrophone = async () => {
     try {
@@ -382,6 +419,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
     try {
       await requestAccessibilityPermission();
       setPermissions((prev) => ({ ...prev, accessibility: "waiting" }));
+      scheduleRestartHelp();
       startPolling();
     } catch (error) {
       console.error("Failed to request accessibility permission:", error);
@@ -391,8 +429,9 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
 
   const handleGrantInputMonitoring = async () => {
     try {
-      await requestInputMonitoringPermission();
+      await invoke("request_input_monitoring_access");
       setPermissions((prev) => ({ ...prev, inputMonitoring: "waiting" }));
+      scheduleRestartHelp();
       startPolling();
     } catch (error) {
       console.error("Failed to request input monitoring permission:", error);
@@ -514,6 +553,22 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
                   grantedLabel={grantedLabel}
                   onGrant={handleGrantInputMonitoring}
                 />
+                {showRestartHelp && (
+                  <div className="w-full p-4 rounded-lg border border-mid-gray/30 bg-text/[0.03]">
+                    <p className="text-sm font-medium text-text">
+                      {t("onboarding.permissions.restartHelp.title")}
+                    </p>
+                    <p className="text-sm text-text/60 mt-1">
+                      {t("onboarding.permissions.restartHelp.description")}
+                    </p>
+                    <button
+                      onClick={restartApp}
+                      className="mt-3 px-4 py-2 rounded-lg bg-text hover:bg-text/90 text-background text-sm font-medium transition-colors"
+                    >
+                      {t("onboarding.permissions.restartHelp.action")}
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </>

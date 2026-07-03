@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { invoke } from "@tauri-apps/api/core";
 import { type } from "@tauri-apps/plugin-os";
 import {
   checkAccessibilityPermission,
   checkInputMonitoringPermission,
   requestAccessibilityPermission,
-  requestInputMonitoringPermission,
 } from "tauri-plugin-macos-permissions-api";
 import { Check, Loader2 } from "lucide-react";
 
@@ -55,7 +55,7 @@ const AccessibilityPermissions: React.FC = () => {
       if (!hasAccessibility) {
         await requestAccessibilityPermission();
       } else if (!hasInputMonitoring) {
-        await requestInputMonitoringPermission();
+        await invoke("request_input_monitoring_access");
       }
     } catch (error) {
       console.error("Error requesting permissions:", error);
