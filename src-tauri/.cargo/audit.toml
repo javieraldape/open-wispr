@@ -1,0 +1,9 @@
+[advisories]
+ignore = [
+  # quick-xml is pulled in by plist v1.9.0 through Tauri. plist's latest
+  # release still requires quick-xml ^0.39.2, while these advisories are
+  # fixed in quick-xml >=0.41.0. Remove once plist/Tauri can resolve that
+  # patched line.
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
+]

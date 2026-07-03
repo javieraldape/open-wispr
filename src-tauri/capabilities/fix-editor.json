@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "fix-editor",
+  "description": "Minimal capabilities for the transcript fix editor window",
+  "windows": ["fix_editor"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "clipboard-manager:allow-write-text"
+  ]
+}

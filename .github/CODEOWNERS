@@ -1,0 +1,11 @@
+# Security-sensitive automation and release paths require owner review.
+.github/workflows/** @cjpais
+.github/dependabot.yml @cjpais
+.github/CODEOWNERS @cjpais
+src-tauri/Cargo.toml @cjpais
+src-tauri/Cargo.lock @cjpais
+src-tauri/tauri.conf.json @cjpais
+src-tauri/capabilities/** @cjpais
+package.json @cjpais
+bun.lock @cjpais
+.claude/skills/** @cjpais

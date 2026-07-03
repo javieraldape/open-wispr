@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3168fa2cf3e9382cf57042d5f2b8fe91e02d205a794c54fb54ca5b6225257c7e # shrinks to pairs = [CorrectionPair { heard: "review", correct: "open", verbatim: false }, CorrectionPair { heard: "open push", correct: "el", verbatim: false }], text = "review push "

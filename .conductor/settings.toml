@@ -1,0 +1,26 @@
+#:schema https://conductor.build/schemas/settings.repo.schema.json
+
+[scripts]
+setup = "bun install"
+# Nothing to tear down: no external services, DBs, or containers; all
+# workspace state (node_modules, target/) lives inside the worktree.
+archive = "echo 'no external resources to clean up'"
+# Tauri pins the vite dev server to port 1420 (vite.config.ts strictPort +
+# tauri.conf.json devUrl), and the app enforces single-instance — two
+# workspaces cannot run the dev app at the same time.
+run_mode = "nonconcurrent"
+
+[scripts.run.dev]
+# CMAKE_POLICY_VERSION_MINIMUM avoids the known cmake error on macOS (AGENTS.md).
+# PATH prefix keeps cargo/bun resolvable in non-interactive shells.
+command = "export PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:$PATH\"; CMAKE_POLICY_VERSION_MINIMUM=3.5 bun run tauri dev"
+default = true
+icon = "play"
+
+[scripts.run.test]
+command = "export PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:$PATH\"; cargo test --manifest-path src-tauri/Cargo.toml"
+icon = "test-tube"
+
+[scripts.run.lint]
+command = "export PATH=\"$HOME/.cargo/bin:/opt/homebrew/bin:$PATH\"; bun run check:translations && bun run lint && bun run format:check"
+icon = "wrench"

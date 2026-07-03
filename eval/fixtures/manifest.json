@@ -1,0 +1,204 @@
+{
+  "description": "Eval fixtures for the correction-learning gate (T2). Splits: train (pairs are learned here), heldout (gate is measured here — same terms, different sentences), negative (false-rewrite corpus — zero custom terms). Voices: Paulina es_MX (Spanish-dominant speaker), Samantha en_US (English-dominant speaker). Synthetic speech via macOS `say` — documented limitation; replace with real dictation for the production benchmark (E4).",
+  "terms": ["OpenWhisper", "Acme", "devkit", "Cascade", "Globex", "Tauri"],
+  "fixtures": [
+    {
+      "id": "train-01",
+      "split": "train",
+      "voice": "Paulina",
+      "text": "Voy a hacer deploy de OpenWhisper en staging",
+      "terms": ["OpenWhisper"]
+    },
+    {
+      "id": "train-02",
+      "split": "train",
+      "voice": "Paulina",
+      "text": "El proyecto OpenWhisper ya compila sin errores",
+      "terms": ["OpenWhisper"]
+    },
+    {
+      "id": "train-03",
+      "split": "train",
+      "voice": "Samantha",
+      "text": "I pushed the OpenWhisper branch to staging this morning",
+      "terms": ["OpenWhisper"]
+    },
+    {
+      "id": "train-04",
+      "split": "train",
+      "voice": "Paulina",
+      "text": "Acme necesita el reporte de métricas hoy",
+      "terms": ["Acme"]
+    },
+    {
+      "id": "train-05",
+      "split": "train",
+      "voice": "Samantha",
+      "text": "The Acme dashboard looks great after the redesign",
+      "terms": ["Acme"]
+    },
+    {
+      "id": "train-06",
+      "split": "train",
+      "voice": "Paulina",
+      "text": "Corre devkit para revisar el plan primero",
+      "terms": ["devkit"]
+    },
+    {
+      "id": "train-07",
+      "split": "train",
+      "voice": "Samantha",
+      "text": "Use devkit to review the plan before shipping",
+      "terms": ["devkit"]
+    },
+    {
+      "id": "train-08",
+      "split": "train",
+      "voice": "Paulina",
+      "text": "El workspace se llama Cascade y ya está listo",
+      "terms": ["Cascade"]
+    },
+    {
+      "id": "train-09",
+      "split": "train",
+      "voice": "Samantha",
+      "text": "Cascade is the name of the new workspace",
+      "terms": ["Cascade"]
+    },
+    {
+      "id": "train-10",
+      "split": "train",
+      "voice": "Paulina",
+      "text": "Globex firmó el contrato ayer por la tarde",
+      "terms": ["Globex"]
+    },
+    {
+      "id": "train-11",
+      "split": "train",
+      "voice": "Paulina",
+      "text": "Abre el PR de Tauri con los cambios nuevos",
+      "terms": ["Tauri"]
+    },
+
+    {
+      "id": "held-01",
+      "split": "heldout",
+      "voice": "Paulina",
+      "text": "OpenWhisper transcribe todo en local sin internet",
+      "terms": ["OpenWhisper"]
+    },
+    {
+      "id": "held-02",
+      "split": "heldout",
+      "voice": "Samantha",
+      "text": "Everyone at the office uses OpenWhisper now",
+      "terms": ["OpenWhisper"]
+    },
+    {
+      "id": "held-03",
+      "split": "heldout",
+      "voice": "Paulina",
+      "text": "Manda el update de Acme al equipo completo",
+      "terms": ["Acme"]
+    },
+    {
+      "id": "held-04",
+      "split": "heldout",
+      "voice": "Samantha",
+      "text": "Acme is growing fast this quarter",
+      "terms": ["Acme"]
+    },
+    {
+      "id": "held-05",
+      "split": "heldout",
+      "voice": "Paulina",
+      "text": "devkit encontró tres bugs en el código ayer",
+      "terms": ["devkit"]
+    },
+    {
+      "id": "held-06",
+      "split": "heldout",
+      "voice": "Paulina",
+      "text": "Hay que hacer deploy de Cascade a producción mañana",
+      "terms": ["Cascade"]
+    },
+    {
+      "id": "held-07",
+      "split": "heldout",
+      "voice": "Samantha",
+      "text": "The Cascade demo went really well yesterday",
+      "terms": ["Cascade"]
+    },
+    {
+      "id": "held-08",
+      "split": "heldout",
+      "voice": "Paulina",
+      "text": "El portal de Globex está listo para pruebas",
+      "terms": ["Globex"]
+    },
+    {
+      "id": "held-09",
+      "split": "heldout",
+      "voice": "Paulina",
+      "text": "La app de Tauri pesa muy poco en disco",
+      "terms": ["Tauri"]
+    },
+
+    {
+      "id": "neg-01",
+      "split": "negative",
+      "voice": "Paulina",
+      "text": "Voy a push the branch antes de la comida",
+      "terms": []
+    },
+    {
+      "id": "neg-02",
+      "split": "negative",
+      "voice": "Paulina",
+      "text": "Abre el PR for the new feature ahorita",
+      "terms": []
+    },
+    {
+      "id": "neg-03",
+      "split": "negative",
+      "voice": "Samantha",
+      "text": "We need to deploy a staging hoy mismo",
+      "terms": []
+    },
+    {
+      "id": "neg-04",
+      "split": "negative",
+      "voice": "Paulina",
+      "text": "El deploy quedó listo ayer por la tarde",
+      "terms": []
+    },
+    {
+      "id": "neg-05",
+      "split": "negative",
+      "voice": "Paulina",
+      "text": "La reunión es mañana a las nueve en punto",
+      "terms": []
+    },
+    {
+      "id": "neg-06",
+      "split": "negative",
+      "voice": "Samantha",
+      "text": "The meeting was moved to Friday morning",
+      "terms": []
+    },
+    {
+      "id": "neg-07",
+      "split": "negative",
+      "voice": "Samantha",
+      "text": "Please review the pull request before lunch",
+      "terms": []
+    },
+    {
+      "id": "neg-08",
+      "split": "negative",
+      "voice": "Paulina",
+      "text": "Necesito más café para esta reunión tan larga",
+      "terms": []
+    }
+  ]
+}
