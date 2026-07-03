@@ -1,15 +1,10 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import "./RecordingOverlay.css";
 import { commands, events } from "@/bindings";
-import type {
-  StreamPhase,
-  StreamPhaseEvent,
-  StreamTextEvent,
-  StreamWorkKind,
-} from "@/bindings";
+import type { StreamPhase, StreamPhaseEvent, StreamWorkKind } from "@/bindings";
 import i18n, { syncLanguageFromSettings } from "@/i18n";
 import { getLanguageDirection } from "@/lib/utils/rtl";
 
@@ -66,22 +61,10 @@ const RecordingOverlay: React.FC = () => {
   const [state, setState] = useState<OverlayState>("recording");
   const [levels, setLevels] = useState<number[]>(Array(WAVE_BARS).fill(0));
   const [compactEnergy, setCompactEnergy] = useState(0);
-  const [streamText, setStreamText] = useState<StreamTextEvent>({
-    committed: "",
-    tentative: "",
-  });
   const [phase, setPhase] = useState<StreamPhase>("listening");
   const [workKind, setWorkKind] = useState<StreamWorkKind>("transcribing");
-  const [elapsed, setElapsed] = useState(0);
-  // Bumped on each new streaming session so the Live card remounts fresh (replays
-  // the pop-in, and never animates in from the previous panel's open size).
-  const [session, setSession] = useState(0);
-  // Overlay placement (top vs bottom of the screen). The Live panel grows downward
-  // from a top overlay (oldest line under the pill) and upward from a bottom one.
+  // Overlay placement (top vs bottom of the screen).
   const [position, setPosition] = useState<"top" | "bottom">("bottom");
-  // True once live text overflows the cap. A top overlay fades its top edge only
-  // while overflowing, so the resting first line stays crisp flush under the pill.
-  const [overflowing, setOverflowing] = useState(false);
   // Bumped each time we (re-)enter the "linger" state, so its auto-hide effect
   // restarts even on a re-entrant paste-complete event.
   const [lingerToken, setLingerToken] = useState(0);
@@ -90,11 +73,6 @@ const RecordingOverlay: React.FC = () => {
   const compactEnergyRef = useRef(0);
   // Adaptive ambient floor used by the gate (see constants above).
   const noiseFloorRef = useRef(0.02);
-  // Live-text scroll-back: the text region "sticks" to the newest line while the
-  // user is at the bottom; if they scroll up to read history, auto-follow pauses
-  // until they scroll back down.
-  const capRef = useRef<HTMLDivElement>(null);
-  const pinnedRef = useRef(true);
   const lingerWindowHideTimerRef = useRef<number | null>(null);
   const direction = getLanguageDirection(i18n.language);
 
@@ -147,9 +125,6 @@ const RecordingOverlay: React.FC = () => {
         const overlayState = event.payload as OverlayState;
         setState(overlayState);
         if (overlayState === "recording" || overlayState === "streaming") {
-          setStreamText({ committed: "", tentative: "" });
-        }
-        if (overlayState === "recording") {
           compactEnergyRef.current = 0;
           noiseFloorRef.current = 0.02;
           setCompactEnergy(0);
@@ -157,8 +132,6 @@ const RecordingOverlay: React.FC = () => {
         if (overlayState === "streaming") {
           setPhase("listening");
           setWorkKind("transcribing");
-          setElapsed(0);
-          setSession((s) => s + 1); // remount the card fresh for this session
         }
         setIsVisible(true);
       });
@@ -201,7 +174,8 @@ const RecordingOverlay: React.FC = () => {
             ? rawEnergy
             : noiseFloorRef.current * 0.999 + rawEnergy * 0.001;
         const gated =
-          rawEnergy > noiseFloorRef.current * NOISE_GATE_RATIO + NOISE_GATE_MARGIN;
+          rawEnergy >
+          noiseFloorRef.current * NOISE_GATE_RATIO + NOISE_GATE_MARGIN;
 
         // Absolute loudness gradient: map raw energy across the calibrated input
         // range so louder voice = taller bars. Zeroed below the gate so ambient
@@ -221,9 +195,7 @@ const RecordingOverlay: React.FC = () => {
         setCompactEnergy(compactEnergyRef.current);
       });
 
-      const unlistenStream = await events.streamTextEvent.listen((event) => {
-        setStreamText(event.payload);
-      });
+      const unlistenStream = await events.streamTextEvent.listen(() => {});
 
       const unlistenPhase = await events.streamPhaseEvent.listen((event) => {
         const payload: StreamPhaseEvent = event.payload;
@@ -275,154 +247,7 @@ const RecordingOverlay: React.FC = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [state, isVisible]);
 
-  // Elapsed timer while the Live overlay is visible.
-  useEffect(() => {
-    if (state !== "streaming" || !isVisible) return;
-    const id = setInterval(() => setElapsed((e) => e + 1), 1000);
-    return () => clearInterval(id);
-  }, [state, isVisible]);
-
-  // Stick to the bottom as text streams in — but only while pinned, so a user who
-  // has scrolled up to read history isn't yanked back down by the next chunk.
-  useLayoutEffect(() => {
-    const el = capRef.current;
-    if (!el) return;
-    // Fade the top edge only once text actually overflows the cap.
-    setOverflowing(el.scrollHeight > el.clientHeight + 1);
-    if (pinnedRef.current) el.scrollTop = el.scrollHeight;
-  }, [streamText]);
-
-  // Each fresh streaming session starts pinned to the bottom, fade cleared.
-  useEffect(() => {
-    pinnedRef.current = true;
-    setOverflowing(false);
-  }, [session]);
-
-  // Re-pin when the user is within ~a line of the bottom; unpin otherwise.
-  const handleStreamScroll = () => {
-    const el = capRef.current;
-    if (!el) return;
-    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 16;
-  };
-
-  const fmtTime = (s: number) =>
-    `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-
   // ---- Shared building blocks (one visual language for every overlay form) ----
-  const waveform = (
-    <div className="swave">
-      {levels.map((v, i) => (
-        <i
-          key={i}
-          style={{
-            height: `${Math.max(3, Math.min(18, 3 + Math.pow(v, 0.7) * 15))}px`,
-          }}
-        />
-      ))}
-    </div>
-  );
-
-  const cancelBtn = (
-    <button
-      className="sx"
-      aria-label="cancel"
-      onClick={() => commands.cancelOperation()}
-    >
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <path
-          d="M4 4 L12 12 M12 4 L4 12"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-        />
-      </svg>
-    </button>
-  );
-
-  // dot (left) | waveform (center) | timer + cancel (right) — same structure for
-  // pill & panel, so the Live morph is a pure width change.
-  const listeningRow = (showTimer: boolean, showCancel: boolean) => (
-    <div className="sbase">
-      <div className="sbase-l">
-        <span className="sdot" />
-      </div>
-      {waveform}
-      <div className="sbase-r">
-        {showTimer && <span className="stimer">{fmtTime(elapsed)}</span>}
-        {showCancel && cancelBtn}
-      </div>
-    </div>
-  );
-
-  // spinner (left) | label (center) | cancel (right) — same 3-zone grid as the
-  // listening row, so the label is centered.
-  const workingRow = (label: string, showCancel: boolean) => (
-    <div className="sbase">
-      <div className="sbase-l">
-        <span className="sspinner" />
-      </div>
-      <span className="swork-label">{label}</span>
-      <div className="sbase-r">{showCancel && cancelBtn}</div>
-    </div>
-  );
-
-  // ---- Live overlay: a pill that sculpts open into a panel ----
-  if (state === "streaming") {
-    const hasText =
-      streamText.committed.length > 0 || streamText.tentative.length > 0;
-    const working = phase === "working";
-    // Keep the panel open whenever there's text — even while finalizing — so the
-    // transcript stays put under a working spinner instead of collapsing and
-    // squishing the text mid-stream. Only fall back to the small working pill
-    // when there was no text to preserve.
-    const open = hasText;
-    const collapsed = working && !hasText;
-
-    return (
-      <div dir={direction} className={`ov-stage ${position}`}>
-        <div
-          key={session}
-          className={`scard ${open ? "open" : ""} ${collapsed ? "working" : ""} ${
-            isVisible ? "" : "leaving"
-          }`}
-        >
-          <div className="stext">
-            <div className="stext-clip">
-              <div
-                className={`stext-cap ${overflowing ? "overflowing" : ""}`}
-                ref={capRef}
-                onScroll={handleStreamScroll}
-              >
-                <p>
-                  <span className="committed">
-                    {streamText.committed ? streamText.committed + " " : ""}
-                  </span>
-                  <span className="tentative">{streamText.tentative}</span>
-                  {/* Drop the blinking caret once finalizing — it's no longer
-                      capturing, and a static spinner conveys the work. */}
-                  {!working && <span className="scaret" />}
-                </p>
-              </div>
-            </div>
-          </div>
-          {working
-            ? workingRow(
-                workKind === "polishing"
-                  ? t("overlay.processing")
-                  : t("overlay.transcribing"),
-                true,
-              )
-            : listeningRow(open, true)}
-        </div>
-      </div>
-    );
-  }
-
-  // ---- Minimal overlay (v4): exactly one row at a time, no timer, no text.
-  // The compact pill keeps one fixed size across recording, working, and linger.
-  const working = state === "transcribing" || state === "processing";
-  const linger = state === "linger";
-
   const compactHigh =
     COMPACT_WAVE_HIGH_MIN +
     Math.pow(clamp01(compactEnergy), COMPACT_WAVE_GAMMA) *
@@ -450,11 +275,39 @@ const RecordingOverlay: React.FC = () => {
     </div>
   );
 
-  const compactWorkingRow = (
-    <div className="srow" role="status" aria-label={workLabelFor(t, state)}>
+  const compactWorkingRow = (label: string) => (
+    <div className="srow" role="status" aria-label={label}>
       <span className="sspin-mono" />
     </div>
   );
+
+  // ---- Live overlay: keep the same compact ribbon for the entire recording.
+  // Streaming text still flows through backend events, but the recording surface
+  // never expands into the old transcript/timer panel while the shortcut is held.
+  if (state === "streaming") {
+    const working = phase === "working";
+    return (
+      <div
+        dir={direction}
+        className={`ov-stage ${position} ov-fade ${isVisible ? "show" : ""}`}
+      >
+        <div className={`scard compact ${working ? "cworking" : ""}`}>
+          {working
+            ? compactWorkingRow(
+                workKind === "polishing"
+                  ? t("overlay.processing")
+                  : t("overlay.transcribing"),
+              )
+            : compactRecordingRow}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Minimal overlay (v4): exactly one row at a time, no timer, no text.
+  // The compact pill keeps one fixed size across recording, working, and linger.
+  const working = state === "transcribing" || state === "processing";
+  const linger = state === "linger";
 
   const editIcon = (
     <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -497,7 +350,11 @@ const RecordingOverlay: React.FC = () => {
           linger && isVisible ? "clinger" : ""
         }`}
       >
-        {linger ? lingerRow : working ? compactWorkingRow : compactRecordingRow}
+        {linger
+          ? lingerRow
+          : working
+            ? compactWorkingRow(workLabelFor(t, state))
+            : compactRecordingRow}
       </div>
     </div>
   );

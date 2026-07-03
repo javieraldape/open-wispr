@@ -54,3 +54,4 @@ result
 eval/audio/
 eval/results/
 .conductor/settings.local.toml
+.gstack/
