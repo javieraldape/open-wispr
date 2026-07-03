@@ -94,6 +94,8 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
   const unlistenRef = useRef<(() => void) | null>(null);
   // Use a ref to track currentKeys for the event handler (avoids stale closure)
   const currentKeysRef = useRef<string>("");
+  const keyedShortcutRef = useRef<string>("");
+  const modifierOnlyShortcutRef = useRef<string>("");
   const isRecordingRef = useRef(false);
   const osType = useOsType();
 
@@ -110,6 +112,8 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     setIsRecording(false);
     setCurrentKeys("");
     currentKeysRef.current = "";
+    keyedShortcutRef.current = "";
+    modifierOnlyShortcutRef.current = "";
     isRecordingRef.current = false;
   }, []);
 
@@ -204,6 +208,8 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
 
     isRecordingRef.current = true;
     currentKeysRef.current = "";
+    keyedShortcutRef.current = "";
+    modifierOnlyShortcutRef.current = "";
 
     setIsRecording(true);
     setCurrentKeys("");
@@ -222,14 +228,38 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
         (event) => {
           if (!isRecordingRef.current) return;
 
-          const { hotkey_string, is_key_down } = event.payload;
+          const { hotkey_string, is_key_down, key, modifiers } = event.payload;
+          const normalizedHotkey = normalizeHandyHotkey(hotkey_string);
 
-          if (is_key_down && hotkey_string) {
-            const normalizedHotkey = normalizeHandyHotkey(hotkey_string);
+          if (is_key_down && key && normalizedHotkey) {
+            keyedShortcutRef.current = normalizedHotkey;
             currentKeysRef.current = normalizedHotkey;
             setCurrentKeys(normalizedHotkey);
-          } else if (!is_key_down && currentKeysRef.current) {
-            void commitRecording(currentKeysRef.current);
+          } else if (is_key_down && !key && normalizedHotkey) {
+            if (isSupportedShortcut(normalizedHotkey)) {
+              modifierOnlyShortcutRef.current = normalizedHotkey;
+              currentKeysRef.current = normalizedHotkey;
+              setCurrentKeys(normalizedHotkey);
+            } else if (!currentKeysRef.current) {
+              currentKeysRef.current = normalizedHotkey;
+              setCurrentKeys(normalizedHotkey);
+            }
+          } else if (!is_key_down && key) {
+            const shortcutToCommit =
+              keyedShortcutRef.current ||
+              normalizedHotkey ||
+              currentKeysRef.current;
+            if (shortcutToCommit) {
+              void commitRecording(shortcutToCommit);
+            }
+          } else if (
+            !is_key_down &&
+            !key &&
+            modifiers.length === 0 &&
+            !keyedShortcutRef.current &&
+            modifierOnlyShortcutRef.current
+          ) {
+            void commitRecording(modifierOnlyShortcutRef.current);
           }
         },
       );
