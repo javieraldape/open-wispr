@@ -88,6 +88,20 @@ fn should_hide_overlay_immediately_after_paste(paste_succeeded: bool) -> bool {
     !paste_succeeded
 }
 
+fn live_stream_ready_for_recording(model_supports_streaming: bool, model_loaded: bool) -> bool {
+    model_supports_streaming && model_loaded
+}
+
+fn vad_policy_for_recording(vad_enabled: bool, live_stream_ready: bool) -> VadPolicy {
+    if !vad_enabled {
+        VadPolicy::Disabled
+    } else if live_stream_ready {
+        VadPolicy::Streaming
+    } else {
+        VadPolicy::Offline
+    }
+}
+
 async fn post_process_transcription(settings: &AppSettings, transcription: &str) -> Option<String> {
     if is_blank_transcription(transcription) {
         debug!("Post-processing skipped because the transcription is empty");
@@ -468,12 +482,12 @@ impl ShortcutAction for TranscribeAction {
         let start_time = Instant::now();
         debug!("TranscribeAction::start called for binding: {}", binding_id);
 
-        // Load model in the background
         let tm = app.state::<Arc<TranscriptionManager>>();
         let rm = app.state::<Arc<AudioRecordingManager>>();
 
-        // Load ASR model and VAD model in parallel
-        tm.initiate_model_load();
+        // Preload VAD in parallel. ASR model loading starts after recording
+        // begins so cold push-to-talk captures microphone audio before any
+        // model initialization can consume the initial key hold.
         let rm_clone = Arc::clone(&rm);
         std::thread::spawn(move || {
             if let Err(e) = rm_clone.preload_vad() {
@@ -499,22 +513,18 @@ impl ShortcutAction for TranscribeAction {
             .as_ref()
             .map(|m| m.supports_streaming)
             .unwrap_or(false);
-        let vad_policy = if !settings.vad_enabled {
-            VadPolicy::Disabled
-        } else if model_supports_streaming {
-            VadPolicy::Streaming
-        } else {
-            VadPolicy::Offline
-        };
-        if model_supports_streaming {
+        let can_stream_live =
+            live_stream_ready_for_recording(model_supports_streaming, tm.is_model_loaded());
+        let vad_policy = vad_policy_for_recording(settings.vad_enabled, can_stream_live);
+        if can_stream_live {
             tm.start_stream();
         }
 
-        // Sizing the overlay follows the same advertised capability. A model that
-        // doesn't stream (or whose capability is not known yet) gets the compact
-        // pill instead of an oversized transparent live window.
+        // Sizing the overlay follows the actual live-stream readiness. A cold
+        // streaming-capable model gets the compact pill until the model is
+        // loaded, avoiding a live window for a batch fallback recording.
         match settings.overlay_style {
-            OverlayStyle::Live if model_supports_streaming => utils::show_streaming_overlay(app),
+            OverlayStyle::Live if can_stream_live => utils::show_streaming_overlay(app),
             OverlayStyle::Live | OverlayStyle::Minimal => show_recording_overlay(app),
             OverlayStyle::None => {} // show_overlay_state no-ops on None anyway
         }
@@ -565,6 +575,11 @@ impl ShortcutAction for TranscribeAction {
         }
 
         if recording_error.is_none() {
+            // Start or continue loading the ASR model only after microphone
+            // capture is active. For cold push-to-talk, this avoids losing the
+            // utterance while the user is already holding the shortcut.
+            tm.initiate_model_load();
+
             // Dynamically register the cancel shortcut in a separate task to avoid deadlock
             shortcut::register_cancel_shortcut(app);
         } else {
@@ -934,7 +949,12 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
 
 #[cfg(test)]
 mod tests {
-    use super::{is_blank_transcription, should_hide_overlay_immediately_after_paste};
+    use crate::audio_toolkit::VadPolicy;
+
+    use super::{
+        is_blank_transcription, live_stream_ready_for_recording,
+        should_hide_overlay_immediately_after_paste, vad_policy_for_recording,
+    };
 
     #[test]
     fn blank_transcription_is_detected() {
@@ -957,5 +977,22 @@ mod tests {
     #[test]
     fn failed_paste_still_hides_overlay_immediately() {
         assert!(should_hide_overlay_immediately_after_paste(false));
+    }
+
+    #[test]
+    fn cold_streaming_models_use_batch_capture_until_loaded() {
+        assert!(!live_stream_ready_for_recording(true, false));
+        assert_eq!(vad_policy_for_recording(true, false), VadPolicy::Offline);
+    }
+
+    #[test]
+    fn loaded_streaming_models_use_streaming_vad() {
+        assert!(live_stream_ready_for_recording(true, true));
+        assert_eq!(vad_policy_for_recording(true, true), VadPolicy::Streaming);
+    }
+
+    #[test]
+    fn disabled_vad_overrides_streaming_readiness() {
+        assert_eq!(vad_policy_for_recording(false, true), VadPolicy::Disabled);
     }
 }

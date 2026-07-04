@@ -16,7 +16,8 @@
     "postProcessing": "Efterbearbetning",
     "history": "Historik",
     "debug": "Felsökning",
-    "about": "Om"
+    "about": "Om",
+    "keywords": "Keywords"
   },
   "onboarding": {
     "existingModelsTitle": "Compatible Models",
@@ -115,7 +116,19 @@
       "allGranted": "Allt klart!",
       "errors": {
         "checkFailed": "Misslyckades med att kontrollera behörigheter. Försök igen.",
-        "requestFailed": "Misslyckades med att begära behörighet. Försök igen."
+        "requestFailed": "Misslyckades med att begära behörighet. Försök igen.",
+        "restartFailed": "Failed to restart OpenWispr. Quit and open it again."
+      },
+      "keyboardTitle": "Enable keyboard control",
+      "keyboardDescription": "OpenWispr needs two macOS permissions so it can detect your shortcut and type for you. Grant both to continue.",
+      "inputMonitoring": {
+        "title": "Input Monitoring",
+        "description": "Lets OpenWispr detect your keyboard shortcut so you can dictate from anywhere."
+      },
+      "restartHelp": {
+        "title": "Still waiting?",
+        "description": "macOS may need OpenWispr to restart after permission changes, especially after reinstalling a development build.",
+        "action": "Restart OpenWispr"
       }
     },
     "modelStep": {
@@ -575,23 +588,21 @@
         "description": "Visa källkod och bidra",
         "button": "Visa på GitHub"
       },
-      "supportDevelopment": {
-        "title": "Stöd utvecklingen",
-        "description": "Hjälp oss att fortsätta bygga OpenWispr",
-        "button": "Donera"
-      },
-      "acknowledgments": {
-        "title": "Tack till",
-        "ggml": {
-          "title": "ggml",
-          "description": "Högpresterande inferens av OpenAI:s Whisper-modell för automatisk taligenkänning",
-          "details": "OpenWispr använder ggml för snabb, lokal tal-till-text-behandling. Tack till det fantastiska arbete som utförts av Georgi Gerganov med medarbetare."
-        }
-      },
       "whatsNewUpdates": {
         "label": "Visa nyheter",
         "description": "Visa versionsinformation efter OpenWispr-uppdateringar"
+      },
+      "updates": {
+        "title": "Updates",
+        "description": "Check for and install OpenWispr updates"
       }
+    },
+    "sidebar": {
+      "version": "Version {{version}}",
+      "modelReady": "{{model}} · Ready"
+    },
+    "keywords": {
+      "title": "Keywords"
     }
   },
   "footer": {

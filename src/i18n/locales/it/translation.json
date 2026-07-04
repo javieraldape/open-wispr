@@ -16,7 +16,8 @@
     "postProcessing": "Post-Elaborazione",
     "history": "Cronologia",
     "debug": "Debug",
-    "about": "Informazioni"
+    "about": "Informazioni",
+    "keywords": "Keywords"
   },
   "onboarding": {
     "existingModelsTitle": "Compatible Models",
@@ -115,7 +116,19 @@
       "allGranted": "Tutto pronto!",
       "errors": {
         "checkFailed": "Impossibile verificare i permessi. Riprova.",
-        "requestFailed": "Impossibile richiedere il permesso. Riprova."
+        "requestFailed": "Impossibile richiedere il permesso. Riprova.",
+        "restartFailed": "Failed to restart OpenWispr. Quit and open it again."
+      },
+      "keyboardTitle": "Enable keyboard control",
+      "keyboardDescription": "OpenWispr needs two macOS permissions so it can detect your shortcut and type for you. Grant both to continue.",
+      "inputMonitoring": {
+        "title": "Input Monitoring",
+        "description": "Lets OpenWispr detect your keyboard shortcut so you can dictate from anywhere."
+      },
+      "restartHelp": {
+        "title": "Still waiting?",
+        "description": "macOS may need OpenWispr to restart after permission changes, especially after reinstalling a development build.",
+        "action": "Restart OpenWispr"
       }
     },
     "modelStep": {
@@ -575,23 +588,21 @@
         "description": "Vedi e contribuisci al codice sorgente",
         "button": "Vedi su GitHub"
       },
-      "supportDevelopment": {
-        "title": "Supporta lo Sviluppo",
-        "description": "Aiutaci a sviluppare OpenWispr",
-        "button": "Dona"
-      },
-      "acknowledgments": {
-        "title": "Ringraziamenti",
-        "ggml": {
-          "title": "ggml",
-          "description": "Inferenza ad alte prestazioni del modello di riconoscimento vocale automatico Whisper di OpenAI",
-          "details": "OpenWispr usa ggml per il riconoscimento vocale veloce in locale. Grazie a Georgi Gerganov e collaboratori per il fantastico lavoro."
-        }
-      },
       "whatsNewUpdates": {
         "label": "Mostra novità",
         "description": "Mostra le note di rilascio dopo gli aggiornamenti di OpenWispr"
+      },
+      "updates": {
+        "title": "Updates",
+        "description": "Check for and install OpenWispr updates"
       }
+    },
+    "sidebar": {
+      "version": "Version {{version}}",
+      "modelReady": "{{model}} · Ready"
+    },
+    "keywords": {
+      "title": "Keywords"
     }
   },
   "footer": {

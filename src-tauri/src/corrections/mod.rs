@@ -40,8 +40,8 @@ mod property_tests {
     /// the realistic token space for bilingual developer dictation.
     const WORDS: &[&str] = &[
         "el", "la", "de", "que", "voy", "a", "push", "branch", "deploy", "the", "to", "está",
-        "niño", "café", "señor", "más", "año", "PR", "commit", "open", "whisper", "cascad",
-        "acme", "staging", "don't", "review",
+        "niño", "café", "señor", "más", "año", "PR", "commit", "open", "whisper", "cascad", "acme",
+        "staging", "don't", "review",
     ];
 
     const PUNCT: &[&str] = &[" ", ", ", ". ", " ¿", "? ", " ¡", "! ", " — ", "\n", "  "];

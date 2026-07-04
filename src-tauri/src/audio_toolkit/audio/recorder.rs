@@ -4,12 +4,12 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc, Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Device, Sample, SizedSample,
+    BufferSize, Device, Sample, SampleFormat, SampleRate, SizedSample, StreamConfig,
 };
 
 use crate::audio_toolkit::{
@@ -29,6 +29,8 @@ enum AudioChunk {
     Samples(Vec<f32>),
     EndOfStream,
 }
+
+const MICROPHONE_INIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How 16 kHz mono frames should be filtered for one recording session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,15 +136,6 @@ impl AudioRecorder {
         let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
         let (init_tx, init_rx) = mpsc::sync_channel::<Result<(), String>>(1);
 
-        let host = crate::audio_toolkit::get_cpal_host();
-        let device = match device {
-            Some(dev) => dev,
-            None => host
-                .default_input_device()
-                .ok_or_else(|| Error::new(std::io::ErrorKind::NotFound, "No input device found"))?,
-        };
-
-        let thread_device = device.clone();
         let vad = self.vad.clone();
         // Move the optional level callback into the worker thread
         let level_cb = self.level_cb.clone();
@@ -153,69 +146,120 @@ impl AudioRecorder {
             let stop_flag = Arc::new(AtomicBool::new(false));
             let stop_flag_for_stream = stop_flag.clone();
             let init_result = (|| -> Result<(cpal::Stream, u32), String> {
-                let config = AudioRecorder::get_preferred_config(&thread_device)
-                    .map_err(|e| format!("Failed to fetch preferred config: {e}"))?;
-
-                let sample_rate = config.sample_rate().0;
-                let channels = config.channels() as usize;
-
-                log::info!(
-                    "Using device: {:?}\nSample rate: {}\nChannels: {}\nFormat: {:?}",
-                    thread_device.name(),
-                    sample_rate,
-                    channels,
-                    config.sample_format()
+                let init_start = Instant::now();
+                log::debug!("AudioRecorder init: resolving input device");
+                let host = crate::audio_toolkit::get_cpal_host();
+                let thread_device = match device {
+                    Some(dev) => dev,
+                    None => host
+                        .default_input_device()
+                        .ok_or_else(|| "No input device found".to_string())?,
+                };
+                log::debug!(
+                    "AudioRecorder init: resolved input device in {:?}",
+                    init_start.elapsed()
                 );
 
-                let stream = match config.sample_format() {
-                    cpal::SampleFormat::U8 => AudioRecorder::build_stream::<u8>(
-                        &thread_device,
-                        &config,
-                        sample_tx,
-                        channels,
-                        stop_flag_for_stream,
-                    )
-                    .map_err(|e| format!("Failed to build input stream: {e}"))?,
-                    cpal::SampleFormat::I8 => AudioRecorder::build_stream::<i8>(
-                        &thread_device,
-                        &config,
-                        sample_tx,
-                        channels,
-                        stop_flag_for_stream,
-                    )
-                    .map_err(|e| format!("Failed to build input stream: {e}"))?,
-                    cpal::SampleFormat::I16 => AudioRecorder::build_stream::<i16>(
-                        &thread_device,
-                        &config,
-                        sample_tx,
-                        channels,
-                        stop_flag_for_stream,
-                    )
-                    .map_err(|e| format!("Failed to build input stream: {e}"))?,
-                    cpal::SampleFormat::I32 => AudioRecorder::build_stream::<i32>(
-                        &thread_device,
-                        &config,
-                        sample_tx,
-                        channels,
-                        stop_flag_for_stream,
-                    )
-                    .map_err(|e| format!("Failed to build input stream: {e}"))?,
-                    cpal::SampleFormat::F32 => AudioRecorder::build_stream::<f32>(
-                        &thread_device,
-                        &config,
-                        sample_tx,
-                        channels,
-                        stop_flag_for_stream,
-                    )
-                    .map_err(|e| format!("Failed to build input stream: {e}"))?,
-                    sample_format => {
-                        return Err(format!("Unsupported sample format: {sample_format:?}"));
-                    }
-                };
+                let build_start = Instant::now();
+                log::debug!("AudioRecorder init: resolving stream config");
+                let configs = AudioRecorder::preferred_configs(&thread_device)
+                    .map_err(|e| format!("Failed to fetch preferred config: {e}"))?;
+                log::debug!(
+                    "AudioRecorder init: resolved {} stream config candidate(s) in {:?}",
+                    configs.len(),
+                    build_start.elapsed()
+                );
 
+                let mut last_build_error = None;
+                let mut built_stream = None;
+
+                for (config, sample_format) in configs {
+                    let sample_rate = config.sample_rate.0;
+                    let channels = config.channels as usize;
+
+                    log::info!(
+                        "Using device: {:?}\nSample rate: {}\nChannels: {}\nFormat: {:?}",
+                        thread_device.name(),
+                        sample_rate,
+                        channels,
+                        sample_format
+                    );
+                    log::debug!("AudioRecorder init: building input stream");
+
+                    let build_result = match sample_format {
+                        SampleFormat::U8 => AudioRecorder::build_stream::<u8>(
+                            &thread_device,
+                            &config,
+                            sample_tx.clone(),
+                            channels,
+                            stop_flag_for_stream.clone(),
+                        ),
+                        SampleFormat::I8 => AudioRecorder::build_stream::<i8>(
+                            &thread_device,
+                            &config,
+                            sample_tx.clone(),
+                            channels,
+                            stop_flag_for_stream.clone(),
+                        ),
+                        SampleFormat::I16 => AudioRecorder::build_stream::<i16>(
+                            &thread_device,
+                            &config,
+                            sample_tx.clone(),
+                            channels,
+                            stop_flag_for_stream.clone(),
+                        ),
+                        SampleFormat::I32 => AudioRecorder::build_stream::<i32>(
+                            &thread_device,
+                            &config,
+                            sample_tx.clone(),
+                            channels,
+                            stop_flag_for_stream.clone(),
+                        ),
+                        SampleFormat::F32 => AudioRecorder::build_stream::<f32>(
+                            &thread_device,
+                            &config,
+                            sample_tx.clone(),
+                            channels,
+                            stop_flag_for_stream.clone(),
+                        ),
+                        sample_format => {
+                            last_build_error =
+                                Some(format!("Unsupported sample format: {sample_format:?}"));
+                            continue;
+                        }
+                    };
+
+                    match build_result {
+                        Ok(stream) => {
+                            built_stream = Some((stream, sample_rate));
+                            break;
+                        }
+                        Err(error) => {
+                            last_build_error = Some(format!(
+                                "Failed to build input stream for {:?}: {error}",
+                                config
+                            ));
+                        }
+                    }
+                }
+
+                let (stream, sample_rate) = built_stream.ok_or_else(|| {
+                    last_build_error.unwrap_or_else(|| "No input stream configs available".into())
+                })?;
+                log::debug!(
+                    "AudioRecorder init: built input stream in {:?}",
+                    build_start.elapsed()
+                );
+
+                let play_start = Instant::now();
+                log::debug!("AudioRecorder init: starting input stream");
                 stream
                     .play()
                     .map_err(|e| format!("Failed to start microphone stream: {e}"))?;
+                log::debug!(
+                    "AudioRecorder init: started input stream in {:?}",
+                    play_start.elapsed()
+                );
 
                 Ok((stream, sample_rate))
             })();
@@ -242,9 +286,8 @@ impl AudioRecorder {
             }
         });
 
-        match init_rx.recv() {
+        match init_rx.recv_timeout(MICROPHONE_INIT_TIMEOUT) {
             Ok(Ok(())) => {
-                self.device = Some(device);
                 self.cmd_tx = Some(cmd_tx);
                 self.worker_handle = Some(worker);
                 Ok(())
@@ -258,11 +301,18 @@ impl AudioRecorder {
                 };
                 Err(Box::new(Error::new(kind, error_message)))
             }
-            Err(recv_error) => {
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(Box::new(Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!(
+                    "Timed out initializing microphone stream after {:?}",
+                    MICROPHONE_INIT_TIMEOUT
+                ),
+            ))),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
                 let _ = worker.join();
-                Err(Box::new(Error::other(format!(
-                    "Failed to initialize microphone worker: {recv_error}"
-                ))))
+                Err(Box::new(Error::other(
+                    "Failed to initialize microphone worker: channel disconnected",
+                )))
             }
         }
     }
@@ -295,7 +345,7 @@ impl AudioRecorder {
 
     fn build_stream<T>(
         device: &cpal::Device,
-        config: &cpal::SupportedStreamConfig,
+        config: &StreamConfig,
         sample_tx: mpsc::Sender<AudioChunk>,
         channels: usize,
         stop_flag: Arc<AtomicBool>,
@@ -344,66 +394,70 @@ impl AudioRecorder {
         };
 
         device.build_input_stream(
-            &config.clone().into(),
+            config,
             stream_cb,
             |err| log::error!("Stream error: {}", err),
             None,
         )
     }
 
-    fn get_preferred_config(
+    fn preferred_configs(
         device: &cpal::Device,
-    ) -> Result<cpal::SupportedStreamConfig, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<(StreamConfig, SampleFormat)>, Box<dyn std::error::Error>> {
         // Use the device's native/default sample rate and let the FrameResampler
         // in run_consumer() downsample to 16kHz. This avoids forcing hardware into
         // a non-native rate which can cause issues on some devices (Bluetooth
         // codecs, certain ALSA drivers, etc.).
-        let default_config = device.default_input_config()?;
-        let target_rate = default_config.sample_rate();
-
-        // Try to find the best sample format at the device's default rate
-        let supported_configs = match device.supported_input_configs() {
-            Ok(configs) => configs,
-            Err(e) => {
-                log::warn!("Could not enumerate input configs ({e}), using device default");
-                return Ok(default_config);
-            }
-        };
-        let mut best_config: Option<cpal::SupportedStreamConfigRange> = None;
-
-        for config_range in supported_configs {
-            if config_range.min_sample_rate() <= target_rate
-                && config_range.max_sample_rate() >= target_rate
-            {
-                match best_config {
-                    None => best_config = Some(config_range),
-                    Some(ref current) => {
-                        // Prioritize F32 > I16 > I32 > others
-                        let score = |fmt: cpal::SampleFormat| match fmt {
-                            cpal::SampleFormat::F32 => 4,
-                            cpal::SampleFormat::I16 => 3,
-                            cpal::SampleFormat::I32 => 2,
-                            _ => 1,
-                        };
-
-                        if score(config_range.sample_format()) > score(current.sample_format()) {
-                            best_config = Some(config_range);
-                        }
-                    }
-                }
-            }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = device;
+            // Avoid CoreAudio config queries in the push-to-talk hot path. Both
+            // `supported_input_configs()` and `default_input_config()` can block
+            // for tens of seconds with some aggregate or virtual devices.
+            return Ok(vec![
+                (
+                    StreamConfig {
+                        channels: 1,
+                        sample_rate: SampleRate(48_000),
+                        buffer_size: BufferSize::Default,
+                    },
+                    SampleFormat::F32,
+                ),
+                (
+                    StreamConfig {
+                        channels: 2,
+                        sample_rate: SampleRate(48_000),
+                        buffer_size: BufferSize::Default,
+                    },
+                    SampleFormat::F32,
+                ),
+                (
+                    StreamConfig {
+                        channels: 1,
+                        sample_rate: SampleRate(44_100),
+                        buffer_size: BufferSize::Default,
+                    },
+                    SampleFormat::F32,
+                ),
+                (
+                    StreamConfig {
+                        channels: 2,
+                        sample_rate: SampleRate(44_100),
+                        buffer_size: BufferSize::Default,
+                    },
+                    SampleFormat::F32,
+                ),
+            ]);
         }
 
-        if let Some(config) = best_config {
-            return Ok(config.with_sample_rate(target_rate));
+        #[cfg(not(target_os = "macos"))]
+        {
+            let default_config = device.default_input_config()?;
+            Ok(vec![(
+                default_config.config(),
+                default_config.sample_format(),
+            )])
         }
-
-        // Fall back to device default if no config matched (exotic/virtual devices)
-        log::warn!(
-            "No supported config matched device default rate {:?}, using default config",
-            target_rate
-        );
-        Ok(default_config)
     }
 }
 

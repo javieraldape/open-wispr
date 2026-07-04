@@ -13,7 +13,7 @@ export const AppendTrailingSpace: React.FC<AppendTrailingSpaceProps> =
     const { t } = useTranslation();
     const { getSetting, updateSetting, isUpdating } = useSettings();
 
-    const enabled = getSetting("append_trailing_space") ?? false;
+    const enabled = getSetting("append_trailing_space") ?? true;
 
     return (
       <ToggleSwitch

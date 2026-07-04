@@ -337,23 +337,15 @@ impl AudioRecordingManager {
         let settings = get_settings(&self.app_handle);
         let selected_device = self.get_effective_microphone_device(&settings);
 
-        // Pre-flight check: if no device was selected/configured AND no devices
-        // exist at all, fail early with a clear error instead of letting cpal
-        // produce a cryptic backend-specific message.
-        if selected_device.is_none() {
-            let has_any_device = list_input_devices()
-                .map(|devices| !devices.is_empty())
-                .unwrap_or(false);
-            if !has_any_device {
-                return Err(anyhow::anyhow!("No input device found"));
-            }
-        }
-
-        // Ensure VAD is loaded if it wasn't for whatever reason
+        // Ensure VAD is loaded if it wasn't for whatever reason.
         self.preload_vad()?;
 
         let mut recorder_opt = self.recorder.lock().unwrap();
         if let Some(rec) = recorder_opt.as_mut() {
+            // Avoid enumerating devices in the recording hot path. On macOS,
+            // device enumeration can block in CoreAudio for virtual devices;
+            // `AudioRecorder::open(None)` already opens the default input and
+            // returns "No input device found" when no default exists.
             rec.open(selected_device)
                 .map_err(|e| anyhow::anyhow!("Failed to open recorder: {}", e))?;
         }

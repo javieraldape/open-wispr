@@ -26,6 +26,43 @@ import { startWindowDrag } from "@/lib/utils/windowDrag";
 
 type OnboardingStep = "accessibility" | "model" | "done";
 
+const PERMISSION_CHECK_TIMEOUT_MS = 3000;
+
+const withTimeout = async <T,>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+};
+
+const initializeKeyboardInput = async (): Promise<boolean> => {
+  try {
+    const [enigoResult, shortcutsResult] = await Promise.all([
+      commands.initializeEnigo(),
+      commands.initializeShortcuts(),
+    ]);
+
+    return enigoResult.status === "ok" && shortcutsResult.status === "ok";
+  } catch (error) {
+    console.warn("Failed to initialize keyboard input:", error);
+    return false;
+  }
+};
+
 const renderSettingsContent = (section: SettingsSection) => {
   const ActiveComponent =
     SECTIONS_CONFIG[section]?.component || SECTIONS_CONFIG.general.component;
@@ -65,12 +102,7 @@ function App() {
   useEffect(() => {
     if (onboardingStep === "done" && !hasCompletedPostOnboardingInit.current) {
       hasCompletedPostOnboardingInit.current = true;
-      Promise.all([
-        commands.initializeEnigo(),
-        commands.initializeShortcuts(),
-      ]).catch((e) => {
-        console.warn("Failed to initialize:", e);
-      });
+      initializeKeyboardInput();
       refreshAudioDevices();
       refreshOutputDevices();
     }
@@ -199,12 +231,25 @@ function App() {
         if (currentPlatform === "macos") {
           try {
             const [hasAccessibility, hasInputMonitoring, hasMicrophone] =
-              await Promise.all([
-                checkAccessibilityPermission(),
-                checkInputMonitoringPermission(),
-                checkMicrophonePermission(),
-              ]);
+              await withTimeout(
+                Promise.all([
+                  checkAccessibilityPermission(),
+                  checkInputMonitoringPermission(),
+                  checkMicrophonePermission(),
+                ]),
+                PERMISSION_CHECK_TIMEOUT_MS,
+                "macOS permission checks",
+              );
             if (!hasAccessibility || !hasInputMonitoring || !hasMicrophone) {
+              const keyboardInitialized =
+                (hasAccessibility && hasInputMonitoring) ||
+                (await initializeKeyboardInput());
+
+              if (keyboardInitialized && hasMicrophone) {
+                setOnboardingStep("done");
+                return;
+              }
+
               await revealMainWindowForPermissions();
               setOnboardingStep("accessibility");
               return;

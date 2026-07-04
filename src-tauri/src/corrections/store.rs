@@ -341,13 +341,7 @@ mod tests {
     fn insert_and_read_back_roundtrip() {
         let (_dir, store) = open_temp();
         store
-            .upsert(
-                "cascad",
-                "Cascade",
-                CorrectionSource::Learned,
-                true,
-                ts(0),
-            )
+            .upsert("cascad", "Cascade", CorrectionSource::Learned, true, ts(0))
             .expect("insert");
         let pairs = store.all_pairs().expect("all_pairs");
         assert_eq!(
@@ -526,13 +520,7 @@ mod tests {
         let before = {
             let store = CorrectionsStore::open(&path).expect("open");
             store
-                .upsert(
-                    "cascad",
-                    "Cascade",
-                    CorrectionSource::Learned,
-                    true,
-                    ts(0),
-                )
+                .upsert("cascad", "Cascade", CorrectionSource::Learned, true, ts(0))
                 .unwrap();
             store
                 .upsert(

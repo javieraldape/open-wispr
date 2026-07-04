@@ -16,7 +16,8 @@
     "postProcessing": "Постобработка",
     "history": "История",
     "debug": "Отладка",
-    "about": "О программе"
+    "about": "О программе",
+    "keywords": "Keywords"
   },
   "onboarding": {
     "existingModelsTitle": "Compatible Models",
@@ -115,7 +116,19 @@
       "allGranted": "Всё готово!",
       "errors": {
         "checkFailed": "Не удалось проверить разрешения. Пожалуйста, попробуйте снова.",
-        "requestFailed": "Не удалось запросить разрешение. Пожалуйста, попробуйте снова."
+        "requestFailed": "Не удалось запросить разрешение. Пожалуйста, попробуйте снова.",
+        "restartFailed": "Failed to restart OpenWispr. Quit and open it again."
+      },
+      "keyboardTitle": "Enable keyboard control",
+      "keyboardDescription": "OpenWispr needs two macOS permissions so it can detect your shortcut and type for you. Grant both to continue.",
+      "inputMonitoring": {
+        "title": "Input Monitoring",
+        "description": "Lets OpenWispr detect your keyboard shortcut so you can dictate from anywhere."
+      },
+      "restartHelp": {
+        "title": "Still waiting?",
+        "description": "macOS may need OpenWispr to restart after permission changes, especially after reinstalling a development build.",
+        "action": "Restart OpenWispr"
       }
     },
     "modelStep": {
@@ -575,23 +588,21 @@
         "description": "Просмотреть исходный код и внести свой вклад",
         "button": "Посмотреть на GitHub"
       },
-      "supportDevelopment": {
-        "title": "Поддержка развития",
-        "description": "Помогите нам продолжать развитие OpenWispr",
-        "button": "Поддержать"
-      },
-      "acknowledgments": {
-        "title": "Благодарности",
-        "ggml": {
-          "title": "ggml",
-          "description": "Высокопроизводительная модель автоматического распознавания речи OpenAI Whisper",
-          "details": "OpenWispr использует ggml для быстрого локального преобразования речи в текст. Спасибо великолепной работе Георгия Герганова и участников."
-        }
-      },
       "whatsNewUpdates": {
         "label": "Показывать новинки",
         "description": "Показывать примечания к выпуску после обновлений OpenWispr"
+      },
+      "updates": {
+        "title": "Updates",
+        "description": "Check for and install OpenWispr updates"
       }
+    },
+    "sidebar": {
+      "version": "Version {{version}}",
+      "modelReady": "{{model}} · Ready"
+    },
+    "keywords": {
+      "title": "Keywords"
     }
   },
   "footer": {

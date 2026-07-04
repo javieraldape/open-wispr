@@ -16,7 +16,8 @@
     "postProcessing": "後處理",
     "history": "歷史紀錄",
     "debug": "偵錯",
-    "about": "關於"
+    "about": "關於",
+    "keywords": "Keywords"
   },
   "onboarding": {
     "existingModelsTitle": "Compatible Models",
@@ -115,7 +116,19 @@
       "allGranted": "全部完成！",
       "errors": {
         "checkFailed": "檢查權限失敗，請重試",
-        "requestFailed": "請求權限失敗，請重試"
+        "requestFailed": "請求權限失敗，請重試",
+        "restartFailed": "Failed to restart OpenWispr. Quit and open it again."
+      },
+      "keyboardTitle": "Enable keyboard control",
+      "keyboardDescription": "OpenWispr needs two macOS permissions so it can detect your shortcut and type for you. Grant both to continue.",
+      "inputMonitoring": {
+        "title": "Input Monitoring",
+        "description": "Lets OpenWispr detect your keyboard shortcut so you can dictate from anywhere."
+      },
+      "restartHelp": {
+        "title": "Still waiting?",
+        "description": "macOS may need OpenWispr to restart after permission changes, especially after reinstalling a development build.",
+        "action": "Restart OpenWispr"
       }
     },
     "modelStep": {
@@ -575,23 +588,21 @@
         "description": "檢視原始碼並參與貢獻",
         "button": "在 GitHub 上檢視"
       },
-      "supportDevelopment": {
-        "title": "支持開發",
-        "description": "幫助我們繼續開發 OpenWispr",
-        "button": "捐贈"
-      },
-      "acknowledgments": {
-        "title": "致謝",
-        "ggml": {
-          "title": "ggml",
-          "description": "針對 OpenAI Whisper 自動語音識別模型的高效能推理引擎",
-          "details": "OpenWispr 使用 ggml 進行快速的本機語音轉文字處理。感謝 Georgi Gerganov 和貢獻者們的傑出工作"
-        }
-      },
       "whatsNewUpdates": {
         "label": "顯示新功能",
         "description": "OpenWispr 更新後顯示版本資訊"
+      },
+      "updates": {
+        "title": "Updates",
+        "description": "Check for and install OpenWispr updates"
       }
+    },
+    "sidebar": {
+      "version": "Version {{version}}",
+      "modelReady": "{{model}} · Ready"
+    },
+    "keywords": {
+      "title": "Keywords"
     }
   },
   "footer": {

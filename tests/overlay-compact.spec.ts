@@ -29,7 +29,7 @@ test.describe("compact recording overlay", () => {
     expect(overlaySource).toContain('if (state === "streaming")');
     expect(overlaySource).not.toContain("streamText.committed");
     expect(overlaySource).not.toContain("streamText.tentative");
-    expect(overlaySource).not.toContain('className={`scard open');
+    expect(overlaySource).not.toContain("className={`scard open");
   });
 
   test("uses the Quiet Native Ribbon layout", async ({ page }) => {

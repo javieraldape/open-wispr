@@ -569,14 +569,8 @@ mod tests {
         let (_dir, manager) = temp_manager();
         manager.add_learned("cascad", "Cascade").expect("add");
         manager.set_force_panic(true);
-        assert_eq!(
-            apply_corrections(&manager, "go to cascad"),
-            "go to cascad"
-        );
+        assert_eq!(apply_corrections(&manager, "go to cascad"), "go to cascad");
         manager.set_force_panic(false);
-        assert_eq!(
-            apply_corrections(&manager, "go to cascad"),
-            "go to Cascade"
-        );
+        assert_eq!(apply_corrections(&manager, "go to cascad"), "go to Cascade");
     }
 }

@@ -16,7 +16,8 @@
     "postProcessing": "Následné zpracování",
     "history": "Historie",
     "debug": "Ladění",
-    "about": "O aplikaci"
+    "about": "O aplikaci",
+    "keywords": "Keywords"
   },
   "onboarding": {
     "existingModelsTitle": "Compatible Models",
@@ -115,7 +116,19 @@
       "allGranted": "Vše připraveno!",
       "errors": {
         "checkFailed": "Nepodařilo se zkontrolovat oprávnění. Zkuste to prosím znovu.",
-        "requestFailed": "Nepodařilo se požádat o oprávnění. Zkuste to prosím znovu."
+        "requestFailed": "Nepodařilo se požádat o oprávnění. Zkuste to prosím znovu.",
+        "restartFailed": "Failed to restart OpenWispr. Quit and open it again."
+      },
+      "keyboardTitle": "Enable keyboard control",
+      "keyboardDescription": "OpenWispr needs two macOS permissions so it can detect your shortcut and type for you. Grant both to continue.",
+      "inputMonitoring": {
+        "title": "Input Monitoring",
+        "description": "Lets OpenWispr detect your keyboard shortcut so you can dictate from anywhere."
+      },
+      "restartHelp": {
+        "title": "Still waiting?",
+        "description": "macOS may need OpenWispr to restart after permission changes, especially after reinstalling a development build.",
+        "action": "Restart OpenWispr"
       }
     },
     "modelStep": {
@@ -575,23 +588,21 @@
         "description": "Zobrazit zdrojový kód a přispět",
         "button": "Zobrazit na GitHubu"
       },
-      "supportDevelopment": {
-        "title": "Podpořte vývoj",
-        "description": "Pomozte nám pokračovat ve vývoji OpenWispr",
-        "button": "Přispět"
-      },
-      "acknowledgments": {
-        "title": "Poděkování",
-        "ggml": {
-          "title": "ggml",
-          "description": "Vysoce výkonné inferenční zpracování modelu automatického rozpoznávání řeči Whisper od OpenAI",
-          "details": "OpenWispr používá ggml pro rychlé lokální zpracování řeči na text. Díky skvělé práci Georgiho Gerganova a přispěvatelů."
-        }
-      },
       "whatsNewUpdates": {
         "label": "Zobrazovat novinky",
         "description": "Zobrazovat poznámky k vydání po aktualizacích OpenWispr"
+      },
+      "updates": {
+        "title": "Updates",
+        "description": "Check for and install OpenWispr updates"
       }
+    },
+    "sidebar": {
+      "version": "Version {{version}}",
+      "modelReady": "{{model}} · Ready"
+    },
+    "keywords": {
+      "title": "Keywords"
     }
   },
   "footer": {
