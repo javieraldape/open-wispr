@@ -62,6 +62,8 @@ pub struct HandyKeysState {
     command_sender: Mutex<Sender<ManagerCommand>>,
     /// Handle to the manager thread (wrapped in Mutex for Sync, allows proper join on drop)
     thread_handle: Mutex<Option<JoinHandle<()>>>,
+    /// Whether the manager thread is alive and able to process commands.
+    manager_running: Arc<AtomicBool>,
     /// Recording listener for UI key capture (only active during recording)
     recording_listener: Mutex<Option<KeyboardListener>>,
     /// Flag indicating if we're in recording mode
@@ -91,16 +93,32 @@ impl HandyKeysState {
     /// Create a new HandyKeysState
     pub fn new(app: AppHandle) -> Result<Self, String> {
         let (cmd_tx, cmd_rx) = mpsc::channel::<ManagerCommand>();
+        let (startup_tx, startup_rx) = mpsc::channel::<Result<(), String>>();
+        let manager_running = Arc::new(AtomicBool::new(false));
 
         // Start the manager thread
         let app_clone = app.clone();
+        let manager_running_for_thread = Arc::clone(&manager_running);
         let thread_handle = thread::spawn(move || {
-            Self::manager_thread(cmd_rx, app_clone);
+            Self::manager_thread(cmd_rx, app_clone, startup_tx, manager_running_for_thread);
         });
+
+        match startup_rx.recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                let _ = thread_handle.join();
+                return Err(e);
+            }
+            Err(_) => {
+                let _ = thread_handle.join();
+                return Err("handy-keys manager thread exited before startup".into());
+            }
+        }
 
         Ok(Self {
             command_sender: Mutex::new(cmd_tx),
             thread_handle: Mutex::new(Some(thread_handle)),
+            manager_running,
             recording_listener: Mutex::new(None),
             is_recording: AtomicBool::new(false),
             recording_binding_id: Mutex::new(None),
@@ -110,17 +128,27 @@ impl HandyKeysState {
     }
 
     /// The main manager thread - owns the HotkeyManager and processes commands
-    fn manager_thread(cmd_rx: Receiver<ManagerCommand>, app: AppHandle) {
+    fn manager_thread(
+        cmd_rx: Receiver<ManagerCommand>,
+        app: AppHandle,
+        startup_tx: Sender<Result<(), String>>,
+        manager_running: Arc<AtomicBool>,
+    ) {
         info!("handy-keys manager thread started");
 
         // Create the HotkeyManager in this thread
         let manager = match HotkeyManager::new_with_blocking() {
             Ok(m) => m,
             Err(e) => {
-                error!("Failed to create HotkeyManager: {}", e);
+                let error = format!("Failed to create HotkeyManager: {}", e);
+                error!("{}", error);
+                let _ = startup_tx.send(Err(error));
                 return;
             }
         };
+
+        manager_running.store(true, Ordering::SeqCst);
+        let _ = startup_tx.send(Ok(()));
 
         // Maps binding IDs to HotkeyIds and hotkey strings
         let mut binding_to_hotkey: HashMap<String, HotkeyId> = HashMap::new();
@@ -183,6 +211,7 @@ impl HandyKeysState {
             }
         }
 
+        manager_running.store(false, Ordering::SeqCst);
         info!("handy-keys manager thread stopped");
     }
 
@@ -231,6 +260,10 @@ impl HandyKeysState {
 
     /// Register a shortcut binding
     pub fn register(&self, binding: &ShortcutBinding) -> Result<(), String> {
+        if !self.manager_running.load(Ordering::SeqCst) {
+            return Err("HandyKeys shortcut manager is not running".into());
+        }
+
         let (tx, rx) = mpsc::channel();
         self.command_sender
             .lock()
@@ -240,14 +273,23 @@ impl HandyKeysState {
                 hotkey_string: binding.current_binding.clone(),
                 response: tx,
             })
-            .map_err(|_| "Failed to send register command")?;
+            .map_err(|_| {
+                self.manager_running.store(false, Ordering::SeqCst);
+                "HandyKeys shortcut manager is not running".to_string()
+            })?;
 
-        rx.recv()
-            .map_err(|_| "Failed to receive register response")?
+        rx.recv().map_err(|_| {
+            self.manager_running.store(false, Ordering::SeqCst);
+            "HandyKeys shortcut manager stopped before registering shortcut".to_string()
+        })?
     }
 
     /// Unregister a shortcut binding
     pub fn unregister(&self, binding: &ShortcutBinding) -> Result<(), String> {
+        if !self.manager_running.load(Ordering::SeqCst) {
+            return Err("HandyKeys shortcut manager is not running".into());
+        }
+
         let (tx, rx) = mpsc::channel();
         self.command_sender
             .lock()
@@ -256,10 +298,15 @@ impl HandyKeysState {
                 binding_id: binding.id.clone(),
                 response: tx,
             })
-            .map_err(|_| "Failed to send unregister command")?;
+            .map_err(|_| {
+                self.manager_running.store(false, Ordering::SeqCst);
+                "HandyKeys shortcut manager is not running".to_string()
+            })?;
 
-        rx.recv()
-            .map_err(|_| "Failed to receive unregister response")?
+        rx.recv().map_err(|_| {
+            self.manager_running.store(false, Ordering::SeqCst);
+            "HandyKeys shortcut manager stopped before unregistering shortcut".to_string()
+        })?
     }
 
     fn suspend_binding_for_recording(
@@ -318,7 +365,12 @@ impl HandyKeysState {
         // The frontend may already have re-registered this binding on a commit
         // with the same key. Unregister by binding id first so restore is
         // idempotent for cancel, timeout, and same-binding commit paths.
-        let _ = self.unregister(&binding);
+        if let Err(e) = self.unregister(&binding) {
+            warn!(
+                "Failed to unregister handy-keys shortcut before restore for '{}': {}",
+                binding.id, e
+            );
+        }
         self.register(&binding)?;
 
         debug!(
@@ -365,7 +417,12 @@ impl HandyKeysState {
             if let Ok(mut recording) = self.recording_listener.lock() {
                 *recording = None;
             }
-            let _ = self.restore_suspended_recording_binding(app);
+            if let Err(restore_error) = self.restore_suspended_recording_binding(app) {
+                warn!(
+                    "Failed to restore handy-keys shortcut after recording setup error: {}",
+                    restore_error
+                );
+            }
             return Err(e);
         }
 
@@ -431,22 +488,35 @@ impl HandyKeysState {
         self.is_recording.store(false, Ordering::SeqCst);
         self.recording_running.store(false, Ordering::SeqCst);
 
-        {
-            let mut recording = self
-                .recording_listener
-                .lock()
-                .map_err(|_| "Failed to lock recording_listener")?;
-            *recording = None;
-        }
-        {
-            let mut binding = self
-                .recording_binding_id
-                .lock()
-                .map_err(|_| "Failed to lock recording_binding_id")?;
-            *binding = None;
+        let mut cleanup_errors = Vec::new();
+
+        match self.recording_listener.lock() {
+            Ok(mut recording) => {
+                *recording = None;
+            }
+            Err(_) => cleanup_errors.push("Failed to lock recording_listener"),
         }
 
-        self.restore_suspended_recording_binding(app)?;
+        match self.recording_binding_id.lock() {
+            Ok(mut binding) => {
+                *binding = None;
+            }
+            Err(_) => cleanup_errors.push("Failed to lock recording_binding_id"),
+        }
+
+        let restore_result = self.restore_suspended_recording_binding(app);
+        if let Err(e) = &restore_result {
+            warn!(
+                "Failed to restore handy-keys shortcut after recording: {}",
+                e
+            );
+        }
+
+        if !cleanup_errors.is_empty() {
+            return Err(cleanup_errors.join("; "));
+        }
+
+        restore_result?;
 
         debug!("Stopped handy-keys recording mode");
         Ok(())
@@ -458,6 +528,7 @@ impl Drop for HandyKeysState {
         // Signal recording to stop
         self.recording_running.store(false, Ordering::SeqCst);
         self.is_recording.store(false, Ordering::SeqCst);
+        self.manager_running.store(false, Ordering::SeqCst);
 
         // Send shutdown command
         if let Ok(sender) = self.command_sender.lock() {
@@ -535,14 +606,21 @@ fn modifier_family_count(modifiers: Modifiers) -> usize {
     count
 }
 
+fn is_fn_only_shortcut(hotkey: &Hotkey) -> bool {
+    hotkey.key.is_none() && hotkey.modifiers == Modifiers::FN
+}
+
 /// Validate a user-configurable app shortcut.
 ///
 /// Modifier-only hotkeys are valid in handy-keys, but single modifiers are too
-/// easy to save accidentally while recording a shortcut in the UI. App bindings
-/// should include either a real key or a deliberate multi-modifier chord.
+/// easy to save accidentally while recording a shortcut in the UI. The fn key is
+/// an exception because users commonly expect it to behave like a dictation key.
 pub fn validate_app_shortcut(raw: &str) -> Result<(), String> {
     let hotkey = parse_hotkey(raw)?;
-    if hotkey.key.is_none() && modifier_family_count(hotkey.modifiers) < 2 {
+    if hotkey.key.is_none()
+        && !is_fn_only_shortcut(&hotkey)
+        && modifier_family_count(hotkey.modifiers) < 2
+    {
         return Err("Shortcut must include a non-modifier key or at least two modifiers".into());
     }
     Ok(())
@@ -712,9 +790,15 @@ mod tests {
     }
 
     #[test]
+    fn app_shortcut_validator_accepts_fn_only_hotkey() {
+        assert!(validate_app_shortcut("fn").is_ok());
+    }
+
+    #[test]
     fn app_shortcut_validator_accepts_keyed_hotkeys() {
         assert!(validate_app_shortcut("option+space").is_ok());
         assert!(validate_app_shortcut("option+command+f").is_ok());
+        assert!(validate_app_shortcut("option+command+s").is_ok());
         assert!(validate_app_shortcut("escape").is_ok());
     }
 
@@ -742,5 +826,16 @@ mod tests {
             &suspended
         ));
         assert!(!should_restore_suspended_binding(None, &suspended));
+    }
+
+    #[test]
+    fn recording_restore_does_not_overwrite_newly_saved_binding() {
+        let suspended = binding("transcribe", "option+space");
+        let current = binding("transcribe", "option+command+s");
+
+        assert!(!should_restore_suspended_binding(
+            Some(&current),
+            &suspended
+        ));
     }
 }

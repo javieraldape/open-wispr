@@ -62,6 +62,10 @@ const normalizeHandyHotkey = (hotkey: string): string =>
 
 const isSupportedShortcut = (hotkey: string): boolean => {
   const parts = normalizeHandyHotkey(hotkey).split("+").filter(Boolean);
+  if (parts.length === 1 && parts[0] === "fn") {
+    return true;
+  }
+
   const hasNonModifierKey = parts.some((part) => !MODIFIER_KEYS.has(part));
   if (hasNonModifierKey) {
     return true;
@@ -86,8 +90,14 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
   disabled = false,
 }) => {
   const { t } = useTranslation();
-  const { getSetting, updateBinding, resetBinding, isUpdating, isLoading } =
-    useSettings();
+  const {
+    getSetting,
+    updateBinding,
+    resetBinding,
+    refreshSettings,
+    isUpdating,
+    isLoading,
+  } = useSettings();
   const [isRecording, setIsRecording] = useState(false);
   const [currentKeys, setCurrentKeys] = useState<string>("");
   const shortcutRef = useRef<HTMLDivElement | null>(null);
@@ -134,10 +144,16 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
       await stopBackendRecording("cancel");
     } catch (error) {
       console.error("Failed to stop handy-keys shortcut capture:", error);
+      await refreshSettings();
     }
 
     resetRecordingState();
-  }, [detachListener, resetRecordingState, stopBackendRecording]);
+  }, [
+    detachListener,
+    refreshSettings,
+    resetRecordingState,
+    stopBackendRecording,
+  ]);
 
   const commitRecording = useCallback(
     async (keysToCommit: string) => {
@@ -154,10 +170,27 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
       detachListener();
 
       try {
-        await stopBackendRecording("commit");
         await updateBinding(shortcutId, keysToCommit);
+        try {
+          await stopBackendRecording("commit");
+        } catch (stopError) {
+          console.error(
+            "Failed to stop handy-keys shortcut capture:",
+            stopError,
+          );
+          await refreshSettings();
+        }
       } catch (error) {
         console.error("Failed to change handy-keys binding:", error);
+        try {
+          await stopBackendRecording("failed commit");
+        } catch (stopError) {
+          console.error(
+            "Failed to stop handy-keys shortcut capture:",
+            stopError,
+          );
+        }
+        await refreshSettings();
         toast.error(
           t("settings.general.shortcut.errors.set", {
             error: String(error),
@@ -169,6 +202,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     },
     [
       detachListener,
+      refreshSettings,
       resetRecordingState,
       shortcutId,
       stopBackendRecording,
@@ -296,12 +330,14 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
       } catch (stopError) {
         console.error("Failed to stop handy-keys shortcut capture:", stopError);
       }
+      await refreshSettings();
       resetRecordingState();
     }
   }, [
     commitRecording,
     detachListener,
     disabled,
+    refreshSettings,
     resetRecordingState,
     shortcutId,
     stopBackendRecording,

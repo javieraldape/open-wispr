@@ -263,7 +263,7 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          echo $APPLE_CERTIFICATE | base64 --decode > certificate.p12
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
@@ -277,7 +277,7 @@ jobs:
         run: |
           CERT_INFO=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application")
           CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
-          echo "CERT_ID=$CERT_ID" >> $GITHUB_ENV
+          echo "CERT_ID=$CERT_ID" >> "$GITHUB_ENV"
           echo "Certificate imported."
 
       - name: Patch asset name pattern
@@ -286,12 +286,12 @@ jobs:
         if: ${{ inputs.release-id != '' && inputs.asset-name-pattern != '' }}
         run: |
           platform="${{ inputs.platform }}"
-          replacement="$(echo ${platform} | sed -E 's/-latest//')"
+          replacement="$(echo "${platform}" | sed -E 's/-latest//')"
           patched_platform=$(echo '${{ inputs.asset-name-pattern }}' | sed -E "s/\[platform\]/${replacement}/")
           if [[ -n "${{ inputs.asset-prefix }}" ]]; then
             patched_platform="${{ inputs.asset-prefix }}_${patched_platform}"
           fi
-          echo "platform=${patched_platform}" >> $GITHUB_OUTPUT
+          echo "platform=${patched_platform}" >> "$GITHUB_OUTPUT"
 
       # transcribe-cpp-sys cmake builds create paths that exceed Windows MAX_PATH
       # (260 chars). Shorten the target dir to keep paths under the limit.
@@ -415,8 +415,8 @@ jobs:
           curl -L -o ort.tgz "https://blob.handy.computer/onnxruntime-osx-x86_64-${ORT_VERSION}.tgz"
           tar xzf ort.tgz
           ORT_DIR="$(pwd)/onnxruntime-osx-x86_64-${ORT_VERSION}"
-          echo "ORT_LIB_LOCATION=$ORT_DIR/lib" >> $GITHUB_ENV
-          echo "ORT_PREFER_DYNAMIC_LINK=1" >> $GITHUB_ENV
+          echo "ORT_LIB_LOCATION=$ORT_DIR/lib" >> "$GITHUB_ENV"
+          echo "ORT_PREFER_DYNAMIC_LINK=1" >> "$GITHUB_ENV"
           # Bundle the versioned dylib (matches the install name @rpath/libonnxruntime.1.24.2.dylib)
           jq --arg lib "$ORT_DIR/lib/libonnxruntime.${ORT_VERSION}.dylib" \
             '.bundle.macOS.frameworks = [$lib]' \
@@ -430,8 +430,8 @@ jobs:
           curl -L -o ort.tgz "https://blob.handy.computer/onnxruntime-linux-x86_64-${ORT_VERSION}.tgz"
           tar xzf ort.tgz
           ORT_DIR="$(pwd)/onnxruntime-linux-x86_64-${ORT_VERSION}"
-          echo "ORT_LIB_LOCATION=$ORT_DIR/lib" >> $GITHUB_ENV
-          echo "ORT_PREFER_DYNAMIC_LINK=1" >> $GITHUB_ENV
+          echo "ORT_LIB_LOCATION=$ORT_DIR/lib" >> "$GITHUB_ENV"
+          echo "ORT_PREFER_DYNAMIC_LINK=1" >> "$GITHUB_ENV"
           # Resolve symlinks so the deb bundler gets real files (not broken symlinks)
           for f in "$ORT_DIR"/lib/libonnxruntime.so*; do
             if [ -L "$f" ]; then
@@ -586,12 +586,12 @@ jobs:
         run: |
           APP=$(find src-tauri/target -name "*.app" -type d | head -1)
           echo "=== Frameworks contents ==="
-          ls -la "$APP/Contents/Frameworks/" | grep onnx || true
+          find "$APP/Contents/Frameworks" -maxdepth 1 -name '*onnx*' -print || true
           echo "=== Binary linked libs ==="
           otool -L "$APP/Contents/MacOS/handy" | grep onnx || true
           echo "=== Checking all @rpath deps are satisfied ==="
           # Extract every @rpath lib the binary needs
-          otool -L "$APP/Contents/MacOS/handy" | grep '@rpath/' | awk '{print $1}' | while read dep; do
+          otool -L "$APP/Contents/MacOS/handy" | grep '@rpath/' | awk '{print $1}' | while read -r dep; do
             libname=$(basename "$dep")
             if [ ! -f "$APP/Contents/Frameworks/$libname" ]; then
               echo "MISSING: $libname not found in Frameworks/"
@@ -663,9 +663,14 @@ jobs:
 
             # List what was removed for verification
             echo "Files remaining in lib directories:"
-            find squashfs-root -name "lib*" -type d | head -5 | while read dir; do
+            find squashfs-root -name "lib*" -type d | head -5 | while read -r dir; do
               echo "Contents of $dir:"
-              ls "$dir" | grep -E "(wayland|fuse)" || echo "  No wayland/fuse libraries found"
+              matches="$(find "$dir" -maxdepth 1 -mindepth 1 \( -name '*wayland*' -o -name '*fuse*' \) -print)"
+              if [ -n "$matches" ]; then
+                printf '%s\n' "$matches"
+              else
+                echo "  No wayland/fuse libraries found"
+              fi
             done
 
             # Co-locate transcribe-cpp's dynamic backends in the AppImage.
@@ -719,6 +724,8 @@ jobs:
           fi
 
           PROFILE="${{ steps.build-profile.outputs.profile }}"
+          PLATFORM="${{ inputs.platform }}"
+          TARGET="${{ inputs.target }}"
           BUNDLE_DIR="src-tauri/target/${PROFILE}/bundle"
 
           require_pattern() {
@@ -761,7 +768,7 @@ jobs:
               require_pattern "$listing" 'usr/bin/handy$' "handy binary"
               require_pattern "$listing" 'usr/lib/libtranscribe\.so' "transcribe runtime library"
               require_pattern "$listing" 'usr/lib/libggml-cpu.*\.so' "ggml CPU backend module"
-              if [[ "${{ inputs.platform }}" == *"ubuntu-22.04"* && "${{ inputs.target }}" == "x86_64-unknown-linux-gnu" ]]; then
+              if [[ "$PLATFORM" == *"ubuntu-22.04"* && "$TARGET" == "x86_64-unknown-linux-gnu" ]]; then
                 require_pattern "$listing" 'usr/lib/libonnxruntime\.so' "ONNX Runtime library"
               fi
               root="$(mktemp -d)"
@@ -798,7 +805,8 @@ jobs:
                 ./Handy.AppImage --appimage-extract >/dev/null
                 require_path "squashfs-root/usr/bin/handy" "AppImage handy binary"
                 require_path "squashfs-root/usr/lib/libtranscribe.so" "AppImage transcribe runtime library"
-                if ! find "squashfs-root/usr/lib" -name 'libggml-cpu*.so*' | grep -q .; then
+                ggml_cpu_lib="$(find "squashfs-root/usr/lib" -name 'libggml-cpu*.so*' -print -quit)"
+                if [ -z "$ggml_cpu_lib" ]; then
                   echo "ERROR: missing AppImage ggml CPU backend module" >&2
                   find "squashfs-root/usr/lib" -maxdepth 1 -type f >&2
                   exit 1
