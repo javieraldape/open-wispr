@@ -600,17 +600,23 @@ fn should_send_auto_submit(auto_submit: bool, paste_method: PasteMethod) -> bool
     auto_submit && paste_method != PasteMethod::None
 }
 
+fn text_for_paste(text: String, append_trailing_space: bool) -> String {
+    if !append_trailing_space
+        || text.is_empty()
+        || text.chars().next_back().is_some_and(char::is_whitespace)
+    {
+        text
+    } else {
+        format!("{text} ")
+    }
+}
+
 pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     let settings = get_settings(&app_handle);
     let paste_method = settings.paste_method;
     let paste_delay_ms = settings.paste_delay_ms;
 
-    // Append trailing space if setting is enabled
-    let text = if settings.append_trailing_space {
-        format!("{} ", text)
-    } else {
-        text
-    };
+    let text = text_for_paste(text, settings.append_trailing_space);
 
     info!(
         "Using paste method: {:?}, delay: {}ms",
@@ -695,6 +701,23 @@ mod tests {
         assert!(should_send_auto_submit(true, PasteMethod::Direct));
         assert!(should_send_auto_submit(true, PasteMethod::CtrlShiftV));
         assert!(should_send_auto_submit(true, PasteMethod::ShiftInsert));
+    }
+
+    #[test]
+    fn trailing_space_is_appended_to_nonempty_text() {
+        assert_eq!(text_for_paste("hello".to_string(), true), "hello ");
+    }
+
+    #[test]
+    fn trailing_space_does_not_duplicate_existing_whitespace() {
+        assert_eq!(text_for_paste("hello ".to_string(), true), "hello ");
+        assert_eq!(text_for_paste("hello\n".to_string(), true), "hello\n");
+    }
+
+    #[test]
+    fn trailing_space_skips_empty_text_and_disabled_setting() {
+        assert_eq!(text_for_paste(String::new(), true), "");
+        assert_eq!(text_for_paste("hello".to_string(), false), "hello");
     }
 
     #[cfg(target_os = "macos")]
