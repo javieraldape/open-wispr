@@ -9,6 +9,15 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
+#[cfg(target_os = "macos")]
+const CLIPBOARD_RESTORE_DELAY_MS: u64 = 250;
+
+#[cfg(not(target_os = "macos"))]
+const CLIPBOARD_RESTORE_DELAY_MS: u64 = 50;
+
+#[cfg(target_os = "macos")]
+const CLIPBOARD_WRITE_SETTLE_DELAY_MS: u64 = 200;
+
 #[cfg(target_os = "linux")]
 use crate::utils::{is_kde_wayland, is_wayland};
 
@@ -20,6 +29,9 @@ fn paste_via_clipboard(
     paste_method: &PasteMethod,
     paste_delay_ms: u64,
 ) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let paste_delay_ms = paste_delay_ms.max(CLIPBOARD_WRITE_SETTLE_DELAY_MS);
+
     let clipboard = app_handle.clipboard();
     let clipboard_content = clipboard.read_text().unwrap_or_default();
 
@@ -61,7 +73,7 @@ fn paste_via_clipboard(
         }
     }
 
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    std::thread::sleep(Duration::from_millis(CLIPBOARD_RESTORE_DELAY_MS));
 
     // Restore original clipboard content
     // On Wayland, prefer wl-copy for better compatibility
@@ -683,5 +695,11 @@ mod tests {
         assert!(should_send_auto_submit(true, PasteMethod::Direct));
         assert!(should_send_auto_submit(true, PasteMethod::CtrlShiftV));
         assert!(should_send_auto_submit(true, PasteMethod::ShiftInsert));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_clipboard_restore_waits_for_async_paste_consumers() {
+        assert!(CLIPBOARD_RESTORE_DELAY_MS >= 250);
     }
 }

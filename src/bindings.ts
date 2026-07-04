@@ -421,7 +421,7 @@ async changeTranscribeGpuDevice(device: number) : Promise<Result<null, string>> 
 },
 /**
  * Return which accelerators and GPU devices are available for this build.
- * 
+ *
  * First-call cost is dominated by enumerating GPU devices through the
  * transcribe.cpp Metal/Vulkan backend, which loads dynamic libraries and
  * probes hardware. Run it on the blocking pool so the webview thread
@@ -565,6 +565,21 @@ async initializeEnigo() : Promise<Result<null, string>> {
 async initializeShortcuts() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("initialize_shortcuts") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Request macOS Input Monitoring access.
+ *
+ * Opening the System Settings pane alone does not always register this app in
+ * the Input Monitoring list. Calling IOHIDRequestAccess first asks TCC to add
+ * the current app identity, then the Settings pane lets the user grant it.
+ */
+async requestInputMonitoringAccess() : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("request_input_monitoring_access") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

@@ -12,7 +12,9 @@ export const startWindowDrag = (e: React.MouseEvent) => {
     return;
   }
 
-  getCurrentWindow().startDragging().catch((error: unknown) => {
-    console.error("Failed to start window drag:", error);
-  });
+  getCurrentWindow()
+    .startDragging()
+    .catch((error: unknown) => {
+      console.error("Failed to start window drag:", error);
+    });
 };
