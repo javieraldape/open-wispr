@@ -149,8 +149,24 @@ jobs:
           version: 1.4.309.0
           cache: true
 
-      - name: Cache trusted-signing-cli
+      - name: Check Windows signing secrets
+        id: check-windows-signing
         if: contains(inputs.platform, 'windows') && inputs.sign-binaries
+        shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          if [[ -n "$AZURE_CLIENT_ID" && -n "$AZURE_CLIENT_SECRET" && -n "$AZURE_TENANT_ID" ]]; then
+            echo "should-sign=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should-sign=false" >> "$GITHUB_OUTPUT"
+            echo "unsigned Windows build (Azure signing secrets not configured)"
+          fi
+
+      - name: Cache trusted-signing-cli
+        if: contains(inputs.platform, 'windows') && inputs.sign-binaries && steps.check-windows-signing.outputs.should-sign == 'true'
         id: cache-tsc
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
@@ -158,7 +174,7 @@ jobs:
           key: trusted-signing-cli-${{ env.TSC_VERSION }}-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install trusted-signing-cli
-        if: contains(inputs.platform, 'windows') && inputs.sign-binaries && steps.cache-tsc.outputs.cache-hit != 'true'
+        if: contains(inputs.platform, 'windows') && inputs.sign-binaries && steps.check-windows-signing.outputs.should-sign == 'true' && steps.cache-tsc.outputs.cache-hit != 'true'
         run: cargo install trusted-signing-cli@${{ env.TSC_VERSION }}
 
       - name: Prepare Vulkan SDK for Ubuntu 24.04
@@ -203,6 +219,16 @@ jobs:
       - name: rustup install target
         if: ${{ inputs.target != '' && !contains(inputs.target, 'x86_64-unknown-linux-gnu') && !contains(inputs.target, 'aarch64-unknown-linux-gnu') && !contains(inputs.target, 'x86_64-pc-windows-msvc') }}
         run: rustup target add ${{ inputs.target }}
+
+      - name: Patch Windows signing config for unsigned build
+        if: contains(inputs.platform, 'windows') && steps.check-windows-signing.outputs.should-sign != 'true'
+        shell: pwsh
+        run: |
+          $path = "src-tauri/tauri.conf.json"
+          $config = Get-Content $path -Raw | ConvertFrom-Json -Depth 100
+          $config.bundle.windows.PSObject.Properties.Remove("signCommand")
+          $config | ConvertTo-Json -Depth 100 | Set-Content $path
+          Write-Host "Removed Windows signCommand for unsigned build."
 
       # A fork's CI may run before a maintainer has added Apple secrets. Signing
       # is only attempted when the full credential set is present; otherwise the
@@ -513,17 +539,35 @@ jobs:
           sudo cp -vL "$LIBDIR"/libtranscribe.so* "$LIBDIR"/libggml*.so* /usr/local/lib/ 2>/dev/null || true
           sudo ldconfig
 
-      - name: Build with Tauri
+      - name: Build with Tauri (signed macOS)
+        if: contains(inputs.platform, 'macos') && steps.check-signing.outputs.should-sign == 'true'
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_ID: ${{ steps.check-signing.outputs.should-sign == 'true' && secrets.APPLE_ID || '' }}
-          APPLE_ID_PASSWORD: ${{ steps.check-signing.outputs.should-sign == 'true' && secrets.APPLE_ID_PASSWORD || '' }}
-          APPLE_PASSWORD: ${{ steps.check-signing.outputs.should-sign == 'true' && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ steps.check-signing.outputs.should-sign == 'true' && secrets.APPLE_TEAM_ID || '' }}
-          APPLE_CERTIFICATE: ${{ steps.check-signing.outputs.should-sign == 'true' && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ steps.check-signing.outputs.should-sign == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ steps.check-signing.outputs.should-sign == 'true' && env.CERT_ID || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ env.CERT_ID }}
+          AZURE_CLIENT_ID: ${{ inputs.sign-binaries && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ inputs.sign-binaries && secrets.AZURE_CLIENT_SECRET || '' }}
+          AZURE_TENANT_ID: ${{ inputs.sign-binaries && secrets.AZURE_TENANT_ID || '' }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.sign-binaries && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        with:
+          tagName: ${{ inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '' }}
+          releaseName: ${{ inputs.release-id && format('v{0}', steps.get-version.outputs.version) || '' }}
+          releaseId: ${{ inputs.release-id }}
+          assetNamePattern: ${{ steps.patch-release-name.outputs.platform }}
+          args: ${{ inputs.build-args }}
+
+      - name: Build with Tauri
+        if: ${{ !contains(inputs.platform, 'macos') || steps.check-signing.outputs.should-sign != 'true' }}
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AZURE_CLIENT_ID: ${{ inputs.sign-binaries && secrets.AZURE_CLIENT_ID || '' }}
           AZURE_CLIENT_SECRET: ${{ inputs.sign-binaries && secrets.AZURE_CLIENT_SECRET || '' }}
           AZURE_TENANT_ID: ${{ inputs.sign-binaries && secrets.AZURE_TENANT_ID || '' }}
