@@ -1,4 +1,4 @@
-# OpenWispr
+
 
 <div align="center">
   <img src="assets/openwhisper-brand/svg/openwhisper-lockup-black.svg" alt="OpenWhisper logo" width="260">
