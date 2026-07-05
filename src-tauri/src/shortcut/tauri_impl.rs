@@ -196,3 +196,15 @@ pub fn unregister_cancel_shortcut(app: &AppHandle) {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::validate_shortcut;
+
+    #[test]
+    fn validator_rejects_fn_shortcuts() {
+        assert!(validate_shortcut("fn").is_err());
+        assert!(validate_shortcut("fn+space").is_err());
+        assert!(validate_shortcut("function+space").is_err());
+    }
+}

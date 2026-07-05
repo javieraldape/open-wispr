@@ -1,7 +1,9 @@
 import React from "react";
 import { useSettings } from "../../hooks/useSettings";
+import { useOsType } from "../../hooks/useOsType";
 import { GlobalShortcutInput } from "./GlobalShortcutInput";
 import { HandyKeysShortcutInput } from "./HandyKeysShortcutInput";
+import { shouldUseHandyKeysShortcutInput } from "./shortcutInputRouting";
 
 interface ShortcutInputProps {
   descriptionMode?: "inline" | "tooltip";
@@ -16,13 +18,20 @@ interface ShortcutInputProps {
  *
  * - "tauri" (default): Uses GlobalShortcutInput with JS keyboard events
  * - "handy_keys": Uses HandyKeysShortcutInput with backend key events
+ * - macOS Transcribe: Uses HandyKeysShortcutInput so the fn key can be captured
  */
 export const ShortcutInput: React.FC<ShortcutInputProps> = (props) => {
   const { getSetting } = useSettings();
+  const osType = useOsType();
   const keyboardImplementation = getSetting("keyboard_implementation");
 
-  // Default to Tauri implementation if not set
-  if (keyboardImplementation === "handy_keys") {
+  if (
+    shouldUseHandyKeysShortcutInput(
+      osType,
+      props.shortcutId,
+      keyboardImplementation,
+    )
+  ) {
     return <HandyKeysShortcutInput {...props} />;
   }
 

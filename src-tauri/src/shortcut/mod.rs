@@ -22,8 +22,8 @@ use tauri_plugin_autostart::ManagerExt;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::settings::APPLE_INTELLIGENCE_DEFAULT_MODEL_ID;
 use crate::settings::{
-    self, get_settings, AutoSubmitKey, ClipboardHandling, KeyboardImplementation, LLMPrompt,
-    OverlayPosition, OverlayStyle, PasteMethod, ShortcutBinding, SoundTheme, TypingTool,
+    self, get_settings, AppSettings, AutoSubmitKey, ClipboardHandling, KeyboardImplementation,
+    LLMPrompt, OverlayPosition, OverlayStyle, PasteMethod, ShortcutBinding, SoundTheme, TypingTool,
     APPLE_INTELLIGENCE_PROVIDER_ID,
 };
 use crate::tray;
@@ -32,11 +32,17 @@ use crate::tray;
 
 /// Initialize shortcuts using the configured implementation
 pub fn init_shortcuts(app: &AppHandle) {
-    let user_settings = settings::load_or_create_app_settings(app);
+    let mut user_settings = settings::load_or_create_app_settings(app);
 
     // Check which implementation to use
     match user_settings.keyboard_implementation {
         KeyboardImplementation::Tauri => {
+            if normalize_bindings_for_implementation(
+                &mut user_settings,
+                KeyboardImplementation::Tauri,
+            ) {
+                settings::write_settings(app, user_settings);
+            }
             tauri_impl::init_shortcuts(app);
         }
         KeyboardImplementation::HandyKeys => {
@@ -48,6 +54,7 @@ pub fn init_shortcuts(app: &AppHandle) {
                 // Update settings to persist the fallback so we don't retry HandyKeys on next launch
                 let mut settings = settings::get_settings(app);
                 settings.keyboard_implementation = KeyboardImplementation::Tauri;
+                normalize_bindings_for_implementation(&mut settings, KeyboardImplementation::Tauri);
                 settings::write_settings(app, settings);
 
                 tauri_impl::init_shortcuts(app);
@@ -280,6 +287,7 @@ pub fn change_keyboard_implementation_setting(
     // Update the setting
     let mut settings = settings::get_settings(&app);
     settings.keyboard_implementation = new_impl;
+    normalize_bindings_for_implementation(&mut settings, new_impl);
     settings::write_settings(&app, settings);
 
     // Initialize new implementation if needed (HandyKeys needs state)
@@ -326,6 +334,69 @@ pub fn get_keyboard_implementation(app: AppHandle) -> String {
 // ============================================================================
 // Validation Helpers
 // ============================================================================
+
+#[cfg(target_os = "macos")]
+const MACOS_TAURI_TRANSCRIBE_FALLBACK: &str = "option+space";
+#[cfg(target_os = "macos")]
+const MACOS_HANDY_KEYS_TRANSCRIBE_DEFAULT: &str = "fn";
+
+fn default_binding_for_implementation(
+    id: &str,
+    default_binding: &ShortcutBinding,
+    implementation: KeyboardImplementation,
+) -> ShortcutBinding {
+    let mut binding = default_binding.clone();
+    normalize_binding_for_implementation(id, &mut binding, implementation);
+    binding
+}
+
+fn normalize_bindings_for_implementation(
+    settings: &mut AppSettings,
+    implementation: KeyboardImplementation,
+) -> bool {
+    let mut changed = false;
+    for (id, binding) in &mut settings.bindings {
+        changed |= normalize_binding_for_implementation(id, binding, implementation);
+    }
+    changed
+}
+
+fn normalize_binding_for_implementation(
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] id: &str,
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] binding: &mut ShortcutBinding,
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+    implementation: KeyboardImplementation,
+) -> bool {
+    let mut changed = false;
+
+    #[cfg(target_os = "macos")]
+    {
+        if id == "transcribe" && implementation == KeyboardImplementation::Tauri {
+            if binding.default_binding == MACOS_HANDY_KEYS_TRANSCRIBE_DEFAULT {
+                binding.default_binding = MACOS_TAURI_TRANSCRIBE_FALLBACK.to_string();
+                changed = true;
+            }
+            if binding.current_binding == MACOS_HANDY_KEYS_TRANSCRIBE_DEFAULT {
+                binding.current_binding = MACOS_TAURI_TRANSCRIBE_FALLBACK.to_string();
+                changed = true;
+            }
+        }
+
+        if id == "transcribe" && implementation == KeyboardImplementation::HandyKeys {
+            let has_legacy_default = binding.default_binding == MACOS_TAURI_TRANSCRIBE_FALLBACK;
+            if has_legacy_default {
+                binding.default_binding = MACOS_HANDY_KEYS_TRANSCRIBE_DEFAULT.to_string();
+                changed = true;
+                if binding.current_binding == MACOS_TAURI_TRANSCRIBE_FALLBACK {
+                    binding.current_binding = MACOS_HANDY_KEYS_TRANSCRIBE_DEFAULT.to_string();
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    changed
+}
 
 /// Validate a shortcut for a specific implementation
 fn validate_shortcut_for_implementation(
@@ -383,6 +454,7 @@ fn register_all_shortcuts_for_implementation(
     implementation: KeyboardImplementation,
 ) -> Vec<String> {
     let mut reset_bindings = Vec::new();
+    let mut settings_changed = false;
     let default_bindings = settings::get_default_settings().bindings;
     let mut current_settings = settings::get_settings(app);
 
@@ -397,11 +469,21 @@ fn register_all_shortcuts_for_implementation(
             continue;
         }
 
+        let implementation_default =
+            default_binding_for_implementation(id, default_binding, implementation);
+
         let mut binding = current_settings
             .bindings
             .get(id)
             .cloned()
-            .unwrap_or_else(|| default_binding.clone());
+            .unwrap_or_else(|| implementation_default.clone());
+
+        if normalize_binding_for_implementation(id, &mut binding, implementation) {
+            current_settings
+                .bindings
+                .insert(id.clone(), binding.clone());
+            settings_changed = true;
+        }
 
         // Validate the shortcut for the target implementation
         if let Err(e) =
@@ -413,11 +495,13 @@ fn register_all_shortcuts_for_implementation(
             );
 
             // Reset to default
-            binding.current_binding = default_binding.current_binding.clone();
+            binding.default_binding = implementation_default.default_binding.clone();
+            binding.current_binding = implementation_default.current_binding.clone();
             current_settings
                 .bindings
                 .insert(id.clone(), binding.clone());
             reset_bindings.push(id.clone());
+            settings_changed = true;
         }
 
         // Register with the appropriate implementation
@@ -434,8 +518,8 @@ fn register_all_shortcuts_for_implementation(
         }
     }
 
-    // Save settings if any bindings were reset
-    if !reset_bindings.is_empty() {
+    // Save settings if bindings were reset or normalized for the target backend.
+    if settings_changed {
         settings::write_settings(app, current_settings);
     }
 
@@ -453,6 +537,7 @@ fn initialize_handy_keys_with_rollback(app: &AppHandle) -> Result<bool, String> 
         // Rollback to Tauri
         let mut settings = settings::get_settings(app);
         settings.keyboard_implementation = KeyboardImplementation::Tauri;
+        normalize_bindings_for_implementation(&mut settings, KeyboardImplementation::Tauri);
         settings::write_settings(app, settings);
         tauri_impl::init_shortcuts(app);
         return Err(format!(
@@ -1253,4 +1338,147 @@ pub async fn get_available_accelerators() -> crate::managers::transcription::Ava
     tauri::async_runtime::spawn_blocking(crate::managers::transcription::get_available_accelerators)
         .await
         .expect("get_available_accelerators panicked")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{default_binding_for_implementation, normalize_bindings_for_implementation};
+    use crate::settings::{self, KeyboardImplementation};
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn tauri_transcribe_default_uses_macos_compatible_shortcut() {
+        let default_binding = settings::get_default_settings()
+            .bindings
+            .get("transcribe")
+            .cloned()
+            .unwrap();
+
+        let binding = default_binding_for_implementation(
+            "transcribe",
+            &default_binding,
+            KeyboardImplementation::Tauri,
+        );
+
+        assert_eq!(binding.default_binding, "option+space");
+        assert_eq!(binding.current_binding, "option+space");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn handy_keys_transcribe_default_keeps_fn_shortcut() {
+        let default_binding = settings::get_default_settings()
+            .bindings
+            .get("transcribe")
+            .cloned()
+            .unwrap();
+
+        let binding = default_binding_for_implementation(
+            "transcribe",
+            &default_binding,
+            KeyboardImplementation::HandyKeys,
+        );
+
+        assert_eq!(binding.default_binding, "fn");
+        assert_eq!(binding.current_binding, "fn");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn handy_keys_transcribe_default_migrates_legacy_option_space() {
+        let mut default_binding = settings::get_default_settings()
+            .bindings
+            .get("transcribe")
+            .cloned()
+            .unwrap();
+        default_binding.default_binding = "option+space".to_string();
+        default_binding.current_binding = "option+space".to_string();
+
+        let binding = default_binding_for_implementation(
+            "transcribe",
+            &default_binding,
+            KeyboardImplementation::HandyKeys,
+        );
+
+        assert_eq!(binding.default_binding, "fn");
+        assert_eq!(binding.current_binding, "fn");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn handy_keys_transcribe_default_preserves_custom_option_space() {
+        let mut default_binding = settings::get_default_settings()
+            .bindings
+            .get("transcribe")
+            .cloned()
+            .unwrap();
+        default_binding.default_binding = "fn".to_string();
+        default_binding.current_binding = "option+space".to_string();
+
+        let binding = default_binding_for_implementation(
+            "transcribe",
+            &default_binding,
+            KeyboardImplementation::HandyKeys,
+        );
+
+        assert_eq!(binding.default_binding, "fn");
+        assert_eq!(binding.current_binding, "option+space");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn tauri_normalization_never_leaves_fn_transcribe_binding() {
+        let mut settings = settings::get_default_settings();
+        settings.keyboard_implementation = KeyboardImplementation::Tauri;
+        let binding = settings.bindings.get_mut("transcribe").unwrap();
+        binding.default_binding = "fn".to_string();
+        binding.current_binding = "fn".to_string();
+
+        assert!(normalize_bindings_for_implementation(
+            &mut settings,
+            KeyboardImplementation::Tauri,
+        ));
+
+        let binding = settings.bindings.get("transcribe").unwrap();
+        assert_eq!(binding.default_binding, "option+space");
+        assert_eq!(binding.current_binding, "option+space");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn handy_keys_normalization_maps_legacy_tauri_default_to_fn() {
+        let mut settings = settings::get_default_settings();
+        settings.keyboard_implementation = KeyboardImplementation::Tauri;
+        let binding = settings.bindings.get_mut("transcribe").unwrap();
+        binding.default_binding = "option+space".to_string();
+        binding.current_binding = "option+space".to_string();
+
+        assert!(normalize_bindings_for_implementation(
+            &mut settings,
+            KeyboardImplementation::HandyKeys,
+        ));
+
+        let binding = settings.bindings.get("transcribe").unwrap();
+        assert_eq!(binding.default_binding, "fn");
+        assert_eq!(binding.current_binding, "fn");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn handy_keys_normalization_preserves_custom_transcribe_binding() {
+        let mut settings = settings::get_default_settings();
+        settings.keyboard_implementation = KeyboardImplementation::Tauri;
+        let binding = settings.bindings.get_mut("transcribe").unwrap();
+        binding.default_binding = "option+space".to_string();
+        binding.current_binding = "command+l".to_string();
+
+        assert!(normalize_bindings_for_implementation(
+            &mut settings,
+            KeyboardImplementation::HandyKeys,
+        ));
+
+        let binding = settings.bindings.get("transcribe").unwrap();
+        assert_eq!(binding.default_binding, "fn");
+        assert_eq!(binding.current_binding, "command+l");
+    }
 }
