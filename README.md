@@ -1,5 +1,3 @@
-
-
 <div align="center">
   <img src="assets/openwhisper-brand/svg/openwhisper-lockup-black.svg" alt="OpenWhisper logo" width="260">
   <p><strong>Private, local dictation that learns the words you actually use.</strong></p>

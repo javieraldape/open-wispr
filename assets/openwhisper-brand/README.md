@@ -31,7 +31,7 @@ site.webmanifest
 ## Colors
 
 | Role  | Hex       |
-|-------|-----------|
+| ----- | --------- |
 | Ink   | `#111111` |
 | Paper | `#FFFFFF` |
 
@@ -60,12 +60,12 @@ For a font-independent final: open a lockup SVG in Illustrator and **Type ▸ Cr
 ### Web `<head>`
 
 ```html
-<link rel="icon" href="/favicon/favicon.svg" type="image/svg+xml">
-<link rel="icon" href="/favicon/favicon-32.png" sizes="32x32">
-<link rel="icon" href="/favicon/favicon-16.png" sizes="16x16">
-<link rel="apple-touch-icon" href="/app-icon/ios/apple-touch-icon-180.png">
-<link rel="manifest" href="/site.webmanifest">
-<meta name="theme-color" content="#111111">
+<link rel="icon" href="/favicon/favicon.svg" type="image/svg+xml" />
+<link rel="icon" href="/favicon/favicon-32.png" sizes="32x32" />
+<link rel="icon" href="/favicon/favicon-16.png" sizes="16x16" />
+<link rel="apple-touch-icon" href="/app-icon/ios/apple-touch-icon-180.png" />
+<link rel="manifest" href="/site.webmanifest" />
+<meta name="theme-color" content="#111111" />
 ```
 
 ### Inline SVG that inherits text color
@@ -81,4 +81,5 @@ Use `app-icon/ios/openwhisper-appicon-blacktile-1024.png` as the 1024 asset-cata
 Use `app-icon/pwa/maskable-512-blacktile.png` for the adaptive (maskable) icon; the mark is inset within the safe zone.
 
 ---
+
 Mark: five hollow bars • Wordmark: JetBrains Mono Bold • © the OpenWhisper project.
