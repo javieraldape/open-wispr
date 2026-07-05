@@ -3,17 +3,13 @@ use crate::input::{self, EnigoState};
 use crate::settings::TypingTool;
 use crate::settings::{get_settings, AutoSubmitKey, ClipboardHandling, PasteMethod};
 use enigo::{Direction, Enigo, Key, Keyboard};
-use log::info;
+use log::{debug, info, warn};
 use std::process::Command;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-#[cfg(target_os = "macos")]
-const CLIPBOARD_RESTORE_DELAY_MS: u64 = 250;
-
-#[cfg(not(target_os = "macos"))]
-const CLIPBOARD_RESTORE_DELAY_MS: u64 = 50;
+const CLIPBOARD_RESTORE_DELAY_MS: u64 = 1000;
 
 #[cfg(target_os = "macos")]
 const CLIPBOARD_WRITE_SETTLE_DELAY_MS: u64 = 200;
@@ -28,33 +24,25 @@ fn paste_via_clipboard(
     app_handle: &AppHandle,
     paste_method: &PasteMethod,
     paste_delay_ms: u64,
+    clipboard_handling: ClipboardHandling,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let paste_delay_ms = paste_delay_ms.max(CLIPBOARD_WRITE_SETTLE_DELAY_MS);
 
     let clipboard = app_handle.clipboard();
-    let clipboard_content = clipboard.read_text().unwrap_or_default();
+    let clipboard_content = clipboard.read_text().ok();
 
     // Write text to clipboard first
     // On Wayland, prefer wl-copy for better compatibility (especially with umlauts)
-    #[cfg(target_os = "linux")]
-    let write_result = if is_wayland() && is_wl_copy_available() {
-        info!("Using wl-copy for clipboard write on Wayland");
-        write_clipboard_via_wl_copy(text)
-    } else {
-        clipboard
-            .write_text(text)
-            .map_err(|e| format!("Failed to write to clipboard: {}", e))
-    };
-
-    #[cfg(not(target_os = "linux"))]
-    let write_result = clipboard
-        .write_text(text)
-        .map_err(|e| format!("Failed to write to clipboard: {}", e));
-
-    write_result?;
+    write_clipboard_text(app_handle, text)?;
 
     std::thread::sleep(Duration::from_millis(paste_delay_ms));
+
+    if clipboard.read_text().ok().as_deref() != Some(text) {
+        debug!("Clipboard changed before paste; rewriting transcription text.");
+        write_clipboard_text(app_handle, text)?;
+        std::thread::sleep(Duration::from_millis(paste_delay_ms));
+    }
 
     // Send paste key combo
     #[cfg(target_os = "linux")]
@@ -73,21 +61,94 @@ fn paste_via_clipboard(
         }
     }
 
-    std::thread::sleep(Duration::from_millis(CLIPBOARD_RESTORE_DELAY_MS));
-
-    // Restore original clipboard content
-    // On Wayland, prefer wl-copy for better compatibility
-    #[cfg(target_os = "linux")]
-    if is_wayland() && is_wl_copy_available() {
-        let _ = write_clipboard_via_wl_copy(&clipboard_content);
-    } else {
-        let _ = clipboard.write_text(&clipboard_content);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = clipboard.write_text(&clipboard_content);
+    schedule_clipboard_restore(app_handle, clipboard_content, text, clipboard_handling);
 
     Ok(())
+}
+
+fn write_clipboard_text(app_handle: &AppHandle, text: &str) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        if is_wayland() && is_wl_copy_available() {
+            info!("Using wl-copy for clipboard write on Wayland");
+            return write_clipboard_via_wl_copy(text);
+        }
+    }
+
+    app_handle
+        .clipboard()
+        .write_text(text)
+        .map_err(|e| format!("Failed to write to clipboard: {}", e))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClipboardRestoreDecision {
+    RestoreOriginal,
+    Skip,
+}
+
+fn clipboard_restore_decision(
+    clipboard_handling: ClipboardHandling,
+    original_text: Option<&str>,
+    current_text: Option<&str>,
+    pasted_text: &str,
+) -> ClipboardRestoreDecision {
+    if clipboard_handling != ClipboardHandling::DontModify {
+        return ClipboardRestoreDecision::Skip;
+    }
+
+    if original_text.is_none() {
+        return ClipboardRestoreDecision::Skip;
+    }
+
+    if current_text == Some(pasted_text) {
+        ClipboardRestoreDecision::RestoreOriginal
+    } else {
+        ClipboardRestoreDecision::Skip
+    }
+}
+
+fn schedule_clipboard_restore(
+    app_handle: &AppHandle,
+    original_text: Option<String>,
+    pasted_text: &str,
+    clipboard_handling: ClipboardHandling,
+) {
+    if clipboard_restore_decision(
+        clipboard_handling,
+        original_text.as_deref(),
+        Some(pasted_text),
+        pasted_text,
+    ) == ClipboardRestoreDecision::Skip
+    {
+        return;
+    }
+
+    let app_handle = app_handle.clone();
+    let pasted_text = pasted_text.to_string();
+
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(CLIPBOARD_RESTORE_DELAY_MS));
+
+        let clipboard = app_handle.clipboard();
+        let current_text = clipboard.read_text().ok();
+        if clipboard_restore_decision(
+            clipboard_handling,
+            original_text.as_deref(),
+            current_text.as_deref(),
+            &pasted_text,
+        ) != ClipboardRestoreDecision::RestoreOriginal
+        {
+            debug!("Skipping clipboard restore because clipboard changed after paste.");
+            return;
+        }
+
+        if let Some(original_text) = original_text {
+            if let Err(err) = write_clipboard_text(&app_handle, &original_text) {
+                warn!("Failed to restore clipboard after paste: {}", err);
+            }
+        }
+    });
 }
 
 /// Attempts to send a key combination using Linux-native tools.
@@ -652,6 +713,7 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
                 &app_handle,
                 &paste_method,
                 paste_delay_ms,
+                settings.clipboard_handling,
             )?
         }
         PasteMethod::ExternalScript => {
@@ -720,9 +782,60 @@ mod tests {
         assert_eq!(text_for_paste("hello".to_string(), false), "hello");
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn macos_clipboard_restore_waits_for_async_paste_consumers() {
-        assert!(CLIPBOARD_RESTORE_DELAY_MS >= 250);
+    fn clipboard_restore_waits_for_async_paste_consumers() {
+        assert!(CLIPBOARD_RESTORE_DELAY_MS >= 1000);
+    }
+
+    #[test]
+    fn clipboard_restore_runs_when_transcription_still_on_clipboard() {
+        assert_eq!(
+            clipboard_restore_decision(
+                ClipboardHandling::DontModify,
+                Some("previous clipboard"),
+                Some("transcription"),
+                "transcription",
+            ),
+            ClipboardRestoreDecision::RestoreOriginal
+        );
+    }
+
+    #[test]
+    fn clipboard_restore_skips_when_user_copied_something_else() {
+        assert_eq!(
+            clipboard_restore_decision(
+                ClipboardHandling::DontModify,
+                Some("previous clipboard"),
+                Some("new user copy"),
+                "transcription",
+            ),
+            ClipboardRestoreDecision::Skip
+        );
+    }
+
+    #[test]
+    fn clipboard_restore_skips_without_original_clipboard() {
+        assert_eq!(
+            clipboard_restore_decision(
+                ClipboardHandling::DontModify,
+                None,
+                Some("transcription"),
+                "transcription",
+            ),
+            ClipboardRestoreDecision::Skip
+        );
+    }
+
+    #[test]
+    fn clipboard_restore_skips_for_copy_to_clipboard_mode() {
+        assert_eq!(
+            clipboard_restore_decision(
+                ClipboardHandling::CopyToClipboard,
+                Some("previous clipboard"),
+                Some("transcription"),
+                "transcription",
+            ),
+            ClipboardRestoreDecision::Skip
+        );
     }
 }
