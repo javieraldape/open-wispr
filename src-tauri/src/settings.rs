@@ -754,7 +754,7 @@ pub fn get_default_settings() -> AppSettings {
     #[cfg(target_os = "windows")]
     let default_shortcut = "ctrl+space";
     #[cfg(target_os = "macos")]
-    let default_shortcut = "option+space";
+    let default_shortcut = "fn";
     #[cfg(target_os = "linux")]
     let default_shortcut = "ctrl+space";
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
@@ -1013,6 +1013,13 @@ fn apply_settings_migrations(
         updated = true;
     }
 
+    #[cfg(target_os = "macos")]
+    {
+        if settings.keyboard_implementation != KeyboardImplementation::Tauri {
+            updated |= migrate_macos_transcribe_fn_default(settings);
+        }
+    }
+
     let stored_schema_version = settings_value
         .get("settings_schema_version")
         .and_then(|v| v.as_u64())
@@ -1049,6 +1056,27 @@ fn apply_settings_migrations(
     }
 
     updated
+}
+
+#[cfg(target_os = "macos")]
+fn migrate_macos_transcribe_fn_default(settings: &mut AppSettings) -> bool {
+    const OLD_MACOS_TRANSCRIBE_DEFAULT: &str = "option+space";
+    const NEW_MACOS_TRANSCRIBE_DEFAULT: &str = "fn";
+
+    let Some(binding) = settings.bindings.get_mut("transcribe") else {
+        return false;
+    };
+
+    if binding.default_binding != OLD_MACOS_TRANSCRIBE_DEFAULT {
+        return false;
+    }
+
+    if binding.current_binding == OLD_MACOS_TRANSCRIBE_DEFAULT {
+        binding.current_binding = NEW_MACOS_TRANSCRIBE_DEFAULT.to_string();
+    }
+    binding.default_binding = NEW_MACOS_TRANSCRIBE_DEFAULT.to_string();
+
+    true
 }
 
 pub fn write_settings(app: &AppHandle, mut settings: AppSettings) {
@@ -1098,6 +1126,78 @@ mod tests {
             settings.settings_schema_version,
             CURRENT_SETTINGS_SCHEMA_VERSION
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn default_transcribe_shortcut_is_fn_on_macos() {
+        let settings = get_default_settings();
+        let binding = settings.bindings.get("transcribe").unwrap();
+
+        assert_eq!(binding.default_binding, "fn");
+        assert_eq!(binding.current_binding, "fn");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_fn_default_migration_updates_uncustomized_transcribe_shortcut() {
+        let mut settings = get_default_settings();
+        let binding = settings.bindings.get_mut("transcribe").unwrap();
+        binding.default_binding = "option+space".to_string();
+        binding.current_binding = "option+space".to_string();
+
+        assert!(migrate_macos_transcribe_fn_default(&mut settings));
+
+        let binding = settings.bindings.get("transcribe").unwrap();
+        assert_eq!(binding.default_binding, "fn");
+        assert_eq!(binding.current_binding, "fn");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_fn_default_migration_preserves_custom_transcribe_shortcut() {
+        let mut settings = get_default_settings();
+        let binding = settings.bindings.get_mut("transcribe").unwrap();
+        binding.default_binding = "option+space".to_string();
+        binding.current_binding = "command+shift+space".to_string();
+
+        assert!(migrate_macos_transcribe_fn_default(&mut settings));
+
+        let binding = settings.bindings.get("transcribe").unwrap();
+        assert_eq!(binding.default_binding, "fn");
+        assert_eq!(binding.current_binding, "command+shift+space");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_fn_default_migration_skips_tauri_users() {
+        let mut settings = get_default_settings();
+        settings.keyboard_implementation = KeyboardImplementation::Tauri;
+        let binding = settings.bindings.get_mut("transcribe").unwrap();
+        binding.default_binding = "option+space".to_string();
+        binding.current_binding = "option+space".to_string();
+
+        let raw = serde_json::json!({
+            "settings_schema_version": CURRENT_SETTINGS_SCHEMA_VERSION,
+            "onboarding_completed": false,
+            "whats_new_last_seen_version": default_whats_new_last_seen_version(),
+            "overlay_style": "live",
+            "keyboard_implementation": "tauri"
+        });
+
+        assert!(!apply_settings_migrations(&mut settings, &raw));
+
+        let binding = settings.bindings.get("transcribe").unwrap();
+        assert_eq!(binding.default_binding, "option+space");
+        assert_eq!(binding.current_binding, "option+space");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_fn_default_migration_is_idempotent() {
+        let mut settings = get_default_settings();
+
+        assert!(!migrate_macos_transcribe_fn_default(&mut settings));
     }
 
     #[cfg(not(target_os = "linux"))]

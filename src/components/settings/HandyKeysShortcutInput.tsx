@@ -6,6 +6,7 @@ import { ResetButton } from "../ui/ResetButton";
 import { SettingContainer } from "../ui/SettingContainer";
 import { useSettings } from "../../hooks/useSettings";
 import { useOsType } from "../../hooks/useOsType";
+import { ensureHandyKeysShortcutEditingBackend } from "./shortcutInputRouting";
 import { commands } from "@/bindings";
 import { toast } from "sonner";
 
@@ -74,13 +75,14 @@ const isSupportedShortcut = (hotkey: string): boolean => {
   return new Set(parts.filter((part) => MODIFIER_KEYS.has(part))).size >= 2;
 };
 
-const ensureCommandOk = (
-  result: { status: "ok" | "error"; error?: string },
+const ensureCommandOk = <T, E extends string>(
+  result: { status: "ok"; data: T } | { status: "error"; error: E },
   fallbackMessage: string,
-) => {
+): T => {
   if (result.status === "error") {
     throw new Error(result.error || fallbackMessage);
   }
+  return result.data;
 };
 
 export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
@@ -132,6 +134,18 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     const result = await commands.stopHandyKeysRecording();
     ensureCommandOk(result, "Failed to stop handy-keys recording");
   }, []);
+
+  const ensureHandyKeysImplementation =
+    useCallback(async (): Promise<boolean> => {
+      return ensureHandyKeysShortcutEditingBackend({
+        osType,
+        shortcutId,
+        keyboardImplementation: getSetting("keyboard_implementation"),
+        changeKeyboardImplementationSetting:
+          commands.changeKeyboardImplementationSetting,
+        refreshSettings,
+      });
+    }, [getSetting, osType, refreshSettings, shortcutId]);
 
   const cancelRecording = useCallback(async () => {
     if (!isRecordingRef.current) return;
@@ -248,7 +262,14 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     setIsRecording(true);
     setCurrentKeys("");
 
+    let didReachHandyKeysBackend = false;
+
     try {
+      didReachHandyKeysBackend = await ensureHandyKeysImplementation();
+      if (!didReachHandyKeysBackend) {
+        throw new Error("handy-keys is not the active keyboard implementation");
+      }
+
       try {
         await stopBackendRecording("stale session before start");
       } catch (error) {
@@ -286,14 +307,17 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
             if (shortcutToCommit) {
               void commitRecording(shortcutToCommit);
             }
-          } else if (
-            !is_key_down &&
-            !key &&
-            modifiers.length === 0 &&
-            !keyedShortcutRef.current &&
-            modifierOnlyShortcutRef.current
-          ) {
-            void commitRecording(modifierOnlyShortcutRef.current);
+          } else if (!is_key_down && !key && !keyedShortcutRef.current) {
+            const modifierOnlyShortcut = modifierOnlyShortcutRef.current;
+            const releasedAllModifiers = modifiers.length === 0;
+            const releasedFnOnlyShortcut = modifierOnlyShortcut === "fn";
+
+            if (
+              modifierOnlyShortcut &&
+              (releasedAllModifiers || releasedFnOnlyShortcut)
+            ) {
+              void commitRecording(modifierOnlyShortcut);
+            }
           }
         },
       );
@@ -325,10 +349,15 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
       );
 
       detachListener();
-      try {
-        await stopBackendRecording("failed setup");
-      } catch (stopError) {
-        console.error("Failed to stop handy-keys shortcut capture:", stopError);
+      if (didReachHandyKeysBackend) {
+        try {
+          await stopBackendRecording("failed setup");
+        } catch (stopError) {
+          console.error(
+            "Failed to stop handy-keys shortcut capture:",
+            stopError,
+          );
+        }
       }
       await refreshSettings();
       resetRecordingState();
@@ -337,6 +366,7 @@ export const HandyKeysShortcutInput: React.FC<HandyKeysShortcutInputProps> = ({
     commitRecording,
     detachListener,
     disabled,
+    ensureHandyKeysImplementation,
     refreshSettings,
     resetRecordingState,
     shortcutId,
