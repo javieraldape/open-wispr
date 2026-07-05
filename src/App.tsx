@@ -241,15 +241,6 @@ function App() {
                 "macOS permission checks",
               );
             if (!hasAccessibility || !hasInputMonitoring || !hasMicrophone) {
-              const keyboardInitialized =
-                (hasAccessibility && hasInputMonitoring) ||
-                (await initializeKeyboardInput());
-
-              if (keyboardInitialized && hasMicrophone) {
-                setOnboardingStep("done");
-                return;
-              }
-
               await revealMainWindowForPermissions();
               setOnboardingStep("accessibility");
               return;

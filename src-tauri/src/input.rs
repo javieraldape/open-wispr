@@ -8,10 +8,21 @@ pub struct EnigoState(pub Mutex<Enigo>);
 
 impl EnigoState {
     pub fn new() -> Result<Self, String> {
-        let enigo = Enigo::new(&Settings::default())
+        let enigo = Enigo::new(&enigo_initialization_settings())
             .map_err(|e| format!("Failed to initialize Enigo: {}", e))?;
         Ok(Self(Mutex::new(enigo)))
     }
+}
+
+fn enigo_initialization_settings() -> Settings {
+    let mut settings = Settings::default();
+
+    #[cfg(target_os = "macos")]
+    {
+        settings.open_prompt_to_get_permissions = false;
+    }
+
+    settings
 }
 
 /// Get the current mouse cursor position using the managed Enigo instance.
@@ -120,4 +131,24 @@ pub fn paste_text_direct(enigo: &mut Enigo, text: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to send text directly: {}", e))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn enigo_initialization_does_not_prompt_for_macos_accessibility() {
+        assert!(!enigo_initialization_settings().open_prompt_to_get_permissions);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn enigo_initialization_preserves_default_permission_prompt_behavior_off_macos() {
+        assert_eq!(
+            enigo_initialization_settings().open_prompt_to_get_permissions,
+            Settings::default().open_prompt_to_get_permissions,
+        );
+    }
 }

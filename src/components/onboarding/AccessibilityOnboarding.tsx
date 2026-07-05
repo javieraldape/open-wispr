@@ -224,28 +224,23 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
             checkMicrophonePermission(),
           ]);
 
-          const keyboardInitialized =
-            (accessibilityGranted && inputMonitoringGranted) ||
-            (await initializeKeyboard());
-
-          if (keyboardInitialized) {
+          if (accessibilityGranted && inputMonitoringGranted) {
+            await initializeKeyboard();
             clearRestartHelpTimeout();
             setShowRestartHelp(false);
           }
 
           setPermissions({
-            accessibility:
-              accessibilityGranted || keyboardInitialized
-                ? "granted"
-                : "needed",
-            inputMonitoring:
-              inputMonitoringGranted || keyboardInitialized
-                ? "granted"
-                : "needed",
+            accessibility: accessibilityGranted ? "granted" : "needed",
+            inputMonitoring: inputMonitoringGranted ? "granted" : "needed",
             microphone: microphoneGranted ? "granted" : "needed",
           });
 
-          if (keyboardInitialized && microphoneGranted) {
+          if (
+            accessibilityGranted &&
+            inputMonitoringGranted &&
+            microphoneGranted
+          ) {
             await completeOnboarding();
           }
         } catch (error) {
@@ -329,23 +324,20 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
           checkInputMonitoringPermission(),
           checkMicrophonePermission(),
         ]);
-        const keyboardInitialized =
-          (accessibilityGranted && inputMonitoringGranted) ||
-          (await initializeKeyboard());
+        const keyboardPermissionsGranted =
+          accessibilityGranted && inputMonitoringGranted;
+
+        if (keyboardPermissionsGranted) {
+          await initializeKeyboard();
+        }
 
         setPermissions((prev) => {
           const next = { ...prev };
 
-          if (
-            (accessibilityGranted || keyboardInitialized) &&
-            prev.accessibility !== "granted"
-          ) {
+          if (accessibilityGranted && prev.accessibility !== "granted") {
             next.accessibility = "granted";
           }
-          if (
-            (inputMonitoringGranted || keyboardInitialized) &&
-            prev.inputMonitoring !== "granted"
-          ) {
+          if (inputMonitoringGranted && prev.inputMonitoring !== "granted") {
             next.inputMonitoring = "granted";
           }
           if (microphoneGranted && prev.microphone !== "granted") {
@@ -355,7 +347,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
           // Initialize the input backend the moment both keyboard permissions
           // are present (and weren't already).
           if (
-            keyboardInitialized &&
+            keyboardPermissionsGranted &&
             (prev.accessibility !== "granted" ||
               prev.inputMonitoring !== "granted")
           ) {
@@ -367,7 +359,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
         });
 
         // If everything is granted, stop polling and proceed.
-        if (keyboardInitialized && microphoneGranted) {
+        if (keyboardPermissionsGranted && microphoneGranted) {
           if (pollingRef.current) {
             clearInterval(pollingRef.current);
             pollingRef.current = null;
