@@ -1,13 +1,7 @@
 # OpenWispr
 
 <div align="center">
-  <svg width="72" height="72" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="OpenWispr mark">
-    <rect x="5" y="23" width="6" height="18" rx="3" stroke="currentColor" stroke-width="3"/>
-    <rect x="17" y="15" width="6" height="34" rx="3" stroke="currentColor" stroke-width="3"/>
-    <rect x="29" y="7" width="6" height="50" rx="3" stroke="currentColor" stroke-width="3"/>
-    <rect x="41" y="18" width="6" height="28" rx="3" stroke="currentColor" stroke-width="3"/>
-    <rect x="53" y="25" width="6" height="14" rx="3" stroke="currentColor" stroke-width="3"/>
-  </svg>
+  <img src="assets/openwhisper-brand/svg/openwhisper-lockup-black.svg" alt="OpenWhisper logo" width="260">
   <p><strong>Private, local dictation that learns the words you actually use.</strong></p>
   <p>
     <a href="https://github.com/javieraldape/open-wispr/releases/latest">

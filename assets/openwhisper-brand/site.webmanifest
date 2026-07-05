@@ -1,0 +1,26 @@
+{
+  "name": "OpenWhisper",
+  "short_name": "OpenWhisper",
+  "description": "Open source voice dictation.",
+  "theme_color": "#111111",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "icons": [
+    {
+      "src": "app-icon/pwa/icon-192-blacktile.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "app-icon/pwa/icon-512-blacktile.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "app-icon/pwa/maskable-512-blacktile.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
