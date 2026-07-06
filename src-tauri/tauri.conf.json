@@ -74,7 +74,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "ZFc1MGNuVnpkR1ZrSUdOdmJXMWxiblE2SUcxcGJtbHphV2R1SUhCMVlteHBZeUJyWlhrNklETkROREl5TnpsRk16QTNOVEkyUlVRS1VsZFVkRXB1VlhkdWFXUkRVRVZqWTBwaFdGbFhRblY1T1ROSVdXdzJUMFJxYWt0bE9FRkhVV3RGTVhabWNHUkNkRWt2ZFZwbFRtWUs=",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNDNDIyNzlFMzA3NTI2RUQKUldUdEpuVXduaWRDUEVjY0phWFlXQnV5OTNIWWw2T0RqaktlOEFHUWtFMXZmcGRCdEkvdVplTmYK",
       "endpoints": [
         "https://github.com/javieraldape/open-wispr/releases/latest/download/latest.json"
       ]
