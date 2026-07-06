@@ -1,35 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { invoke } from "@tauri-apps/api/core";
 import { type } from "@tauri-apps/plugin-os";
-import {
-  checkAccessibilityPermission,
-  checkInputMonitoringPermission,
-  requestAccessibilityPermission,
-} from "tauri-plugin-macos-permissions-api";
+import { requestAccessibilityPermission } from "tauri-plugin-macos-permissions-api";
 import { AlertTriangle, Check, Loader2 } from "lucide-react";
+import {
+  getMacOSKeyboardReadiness,
+  type MacOSKeyboardReadiness,
+} from "@/lib/utils/macosKeyboardReadiness";
 
-// macOS keyboard control needs TWO distinct permissions — Accessibility (to type
-// text) and Input Monitoring (to detect the shortcut). This banner surfaces both
-// explicitly with their own status so re-granting isn't the confusing
-// "I already did this, why is it still asking?" single-button flow it used to be.
+// macOS keyboard control needs Accessibility for the current input backends.
+// Input Monitoring is not a required gate for the default HandyKeys path.
 const AccessibilityPermissions: React.FC = () => {
   const { t } = useTranslation();
-  const [hasAccessibility, setHasAccessibility] = useState(false);
-  const [hasInputMonitoring, setHasInputMonitoring] = useState(false);
+  const [keyboardReadiness, setKeyboardReadiness] =
+    useState<MacOSKeyboardReadiness | null>(null);
   const [isRequesting, setIsRequesting] = useState(false);
 
   // Accessibility permissions are only required on macOS
   const isMacOS = type() === "macos";
 
   const refresh = useCallback(async (): Promise<void> => {
-    const [accessibility, inputMonitoring] = await Promise.all([
-      checkAccessibilityPermission(),
-      checkInputMonitoringPermission(),
-    ]);
-    setHasAccessibility(accessibility);
-    setHasInputMonitoring(inputMonitoring);
-    return;
+    setKeyboardReadiness(await getMacOSKeyboardReadiness());
   }, []);
 
   // Check on mount, and re-check whenever the window regains focus (i.e. the
@@ -37,7 +28,9 @@ const AccessibilityPermissions: React.FC = () => {
   useEffect(() => {
     if (!isMacOS) return;
 
-    refresh();
+    refresh().catch((error) =>
+      console.error("Error checking permissions:", error),
+    );
 
     const onFocus = () => {
       refresh().catch((error) =>
@@ -52,10 +45,8 @@ const AccessibilityPermissions: React.FC = () => {
   const handleOpenSettings = async (): Promise<void> => {
     setIsRequesting(true);
     try {
-      if (!hasAccessibility) {
+      if (!keyboardReadiness?.hasAccessibilityPermission) {
         await requestAccessibilityPermission();
-      } else if (!hasInputMonitoring) {
-        await invoke("request_input_monitoring_access");
       }
     } catch (error) {
       console.error("Error requesting permissions:", error);
@@ -65,8 +56,14 @@ const AccessibilityPermissions: React.FC = () => {
     }
   };
 
-  // Skip rendering on non-macOS platforms or once both permissions are granted.
-  if (!isMacOS || (hasAccessibility && hasInputMonitoring)) {
+  // Skip rendering once raw permissions are granted, or when macOS reports stale
+  // permission checks but the keyboard backend is already operational.
+  if (
+    !isMacOS ||
+    !keyboardReadiness ||
+    keyboardReadiness.hasRawKeyboardPermissions ||
+    keyboardReadiness.isKeyboardOperational
+  ) {
     return null;
   }
 
@@ -119,13 +116,7 @@ const AccessibilityPermissions: React.FC = () => {
       <div className="border-t border-separator">
         <PermissionRow
           label={t("onboarding.permissions.accessibility.title")}
-          granted={hasAccessibility}
-        />
-      </div>
-      <div className="border-t border-separator">
-        <PermissionRow
-          label={t("onboarding.permissions.inputMonitoring.title")}
-          granted={hasInputMonitoring}
+          granted={keyboardReadiness.hasAccessibilityPermission}
         />
       </div>
     </div>

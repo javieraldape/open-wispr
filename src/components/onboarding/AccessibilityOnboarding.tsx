@@ -1,32 +1,28 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { invoke } from "@tauri-apps/api/core";
 import { platform } from "@tauri-apps/plugin-os";
 import { relaunch } from "@tauri-apps/plugin-process";
 import {
-  checkAccessibilityPermission,
-  checkInputMonitoringPermission,
   requestAccessibilityPermission,
   checkMicrophonePermission,
   requestMicrophonePermission,
 } from "tauri-plugin-macos-permissions-api";
 import { toast } from "sonner";
 import { commands } from "@/bindings";
+import { getMacOSKeyboardReadiness } from "@/lib/utils/macosKeyboardReadiness";
 import { useSettingsStore } from "@/stores/settingsStore";
 import BrandLockup from "./BrandLockup";
 import StepProgress from "./StepProgress";
-import { Accessibility, Keyboard, Mic, Check, Loader2 } from "lucide-react";
+import { Accessibility, Mic, Check, Loader2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 // Onboarding is 3 steps total (mic -> keyboard -> model, see App.tsx and the v4
 // design spec's "Surface 5 — First run"). This screen covers the first two
 // (microphone, then the keyboard permissions); Onboarding.tsx renders step 3.
 //
-// macOS requires THREE distinct system permissions — Microphone, Accessibility,
-// and Input Monitoring — so each is shown as its own card with its own status
-// and button. Earlier this collapsed Accessibility + Input Monitoring into a
-// single card whose button silently stepped through two different Settings
-// panes, which read as "I already granted this, why is it still asking?".
+// macOS needs Microphone for recording and Accessibility for the current
+// keyboard/input backends. Input Monitoring is observable for diagnostics, but
+// it is not a required onboarding gate for the default HandyKeys path.
 const TOTAL_ONBOARDING_STEPS = 3;
 
 interface AccessibilityOnboardingProps {
@@ -127,7 +123,6 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
 
   const allGranted = isMacOS
     ? permissions.accessibility === "granted" &&
-      permissions.inputMonitoring === "granted" &&
       permissions.microphone === "granted"
     : isWindows
       ? permissions.microphone === "granted"
@@ -147,23 +142,6 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
     }
 
     return microphoneStatus.overall_access !== "denied";
-  }, []);
-
-  // Initialize Enigo (typing) + global shortcuts once BOTH keyboard permissions
-  // (Accessibility + Input Monitoring) are granted — either one alone is not
-  // enough for the input backend to work.
-  const initializeKeyboard = useCallback(async (): Promise<boolean> => {
-    try {
-      const [enigoResult, shortcutsResult] = await Promise.all([
-        commands.initializeEnigo(),
-        commands.initializeShortcuts(),
-      ]);
-
-      return enigoResult.status === "ok" && shortcutsResult.status === "ok";
-    } catch (error) {
-      console.warn("Failed to initialize after permission grant:", error);
-      return false;
-    }
   }, []);
 
   const clearRestartHelpTimeout = useCallback(() => {
@@ -214,31 +192,26 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
     const checkInitial = async () => {
       if (nextPlatform === "macos") {
         try {
-          const [
-            accessibilityGranted,
-            inputMonitoringGranted,
-            microphoneGranted,
-          ] = await Promise.all([
-            checkAccessibilityPermission(),
-            checkInputMonitoringPermission(),
+          const [keyboardReadiness, microphoneGranted] = await Promise.all([
+            getMacOSKeyboardReadiness({ allowOperationalFallback: false }),
             checkMicrophonePermission(),
           ]);
+          const accessibilityGranted =
+            keyboardReadiness.hasAccessibilityPermission;
 
-          if (accessibilityGranted && inputMonitoringGranted) {
-            await initializeKeyboard();
+          if (keyboardReadiness.hasRawKeyboardPermissions) {
             clearRestartHelpTimeout();
             setShowRestartHelp(false);
           }
 
           setPermissions({
             accessibility: accessibilityGranted ? "granted" : "needed",
-            inputMonitoring: inputMonitoringGranted ? "granted" : "needed",
+            inputMonitoring: "granted",
             microphone: microphoneGranted ? "granted" : "needed",
           });
 
           if (
-            accessibilityGranted &&
-            inputMonitoringGranted &&
+            keyboardReadiness.hasRawKeyboardPermissions &&
             microphoneGranted
           ) {
             await completeOnboarding();
@@ -281,13 +254,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
     };
 
     checkInitial();
-  }, [
-    completeOnboarding,
-    hasWindowsMicrophoneAccess,
-    initializeKeyboard,
-    onComplete,
-    t,
-  ]);
+  }, [completeOnboarding, hasWindowsMicrophoneAccess, onComplete, t]);
 
   // Polling for permissions after the user clicks a grant button. Each
   // permission is tracked independently so a card only flips to "granted" when
@@ -315,21 +282,14 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
           return;
         }
 
-        const [
-          accessibilityGranted,
-          inputMonitoringGranted,
-          microphoneGranted,
-        ] = await Promise.all([
-          checkAccessibilityPermission(),
-          checkInputMonitoringPermission(),
+        const [keyboardReadiness, microphoneGranted] = await Promise.all([
+          getMacOSKeyboardReadiness({ allowOperationalFallback: false }),
           checkMicrophonePermission(),
         ]);
+        const accessibilityGranted =
+          keyboardReadiness.hasAccessibilityPermission;
         const keyboardPermissionsGranted =
-          accessibilityGranted && inputMonitoringGranted;
-
-        if (keyboardPermissionsGranted) {
-          await initializeKeyboard();
-        }
+          keyboardReadiness.hasRawKeyboardPermissions;
 
         setPermissions((prev) => {
           const next = { ...prev };
@@ -337,20 +297,12 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
           if (accessibilityGranted && prev.accessibility !== "granted") {
             next.accessibility = "granted";
           }
-          if (inputMonitoringGranted && prev.inputMonitoring !== "granted") {
-            next.inputMonitoring = "granted";
-          }
           if (microphoneGranted && prev.microphone !== "granted") {
             next.microphone = "granted";
           }
 
-          // Initialize the input backend the moment both keyboard permissions
-          // are present (and weren't already).
-          if (
-            keyboardPermissionsGranted &&
-            (prev.accessibility !== "granted" ||
-              prev.inputMonitoring !== "granted")
-          ) {
+          // Clear restart help once the required keyboard permission is present.
+          if (keyboardPermissionsGranted && prev.accessibility !== "granted") {
             clearRestartHelpTimeout();
             setShowRestartHelp(false);
           }
@@ -383,13 +335,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
         }
       }
     }, 1000);
-  }, [
-    completeOnboarding,
-    hasWindowsMicrophoneAccess,
-    initializeKeyboard,
-    permissionPlatform,
-    t,
-  ]);
+  }, [completeOnboarding, hasWindowsMicrophoneAccess, permissionPlatform, t]);
 
   // Cleanup polling and timeouts on unmount
   useEffect(() => {
@@ -432,23 +378,10 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
     }
   };
 
-  const handleGrantInputMonitoring = async () => {
-    try {
-      await invoke("request_input_monitoring_access");
-      setPermissions((prev) => ({ ...prev, inputMonitoring: "waiting" }));
-      scheduleRestartHelp();
-      startPolling();
-    } catch (error) {
-      console.error("Failed to request input monitoring permission:", error);
-      toast.error(t("onboarding.permissions.errors.requestFailed"));
-    }
-  };
-
   const isChecking =
     permissionPlatform === null ||
     (isMacOS &&
       permissions.accessibility === "checking" &&
-      permissions.inputMonitoring === "checking" &&
       permissions.microphone === "checking") ||
     (isWindows && permissions.microphone === "checking");
 
@@ -522,7 +455,7 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
           </>
         ) : (
           <>
-            {/* Step 2 — the two keyboard permissions, each shown explicitly. */}
+            {/* Step 2 — keyboard control. */}
             <div className="text-center mb-2">
               <h2 className="text-xl font-semibold text-text mb-2">
                 {t("onboarding.permissions.keyboardTitle")}
@@ -545,18 +478,6 @@ const AccessibilityOnboarding: React.FC<AccessibilityOnboardingProps> = ({
                   waitingLabel={waitingLabel}
                   grantedLabel={grantedLabel}
                   onGrant={handleGrantAccessibility}
-                />
-                <PermissionCard
-                  icon={Keyboard}
-                  title={t("onboarding.permissions.inputMonitoring.title")}
-                  description={t(
-                    "onboarding.permissions.inputMonitoring.description",
-                  )}
-                  status={permissions.inputMonitoring}
-                  grantLabel={grantLabel}
-                  waitingLabel={waitingLabel}
-                  grantedLabel={grantedLabel}
-                  onGrant={handleGrantInputMonitoring}
                 />
                 {showRestartHelp && (
                   <div className="w-full p-4 rounded-lg border border-mid-gray/30 bg-text/[0.03]">

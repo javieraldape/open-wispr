@@ -129,7 +129,7 @@
       "title": "Permissions Required",
       "description": "OpenWispr needs a couple of permissions to work properly.",
       "keyboardTitle": "Enable keyboard control",
-      "keyboardDescription": "OpenWispr needs two macOS permissions so it can detect your shortcut and type for you. Grant both to continue.",
+      "keyboardDescription": "OpenWispr needs macOS Accessibility permission so it can detect your shortcut and type for you.",
       "microphone": {
         "title": "Microphone",
         "description": "Lets OpenWispr hear your voice to transcribe it. Audio never leaves your Mac."
