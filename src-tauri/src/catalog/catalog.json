@@ -440,7 +440,7 @@
         }
       ],
       "default_quant": "Q8_0",
-      "recommended": false,
+      "recommended": true,
       "recommended_rank": 7
     },
     {

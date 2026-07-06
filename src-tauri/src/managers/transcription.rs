@@ -1143,14 +1143,28 @@ impl TranscriptionManager {
         // will actually use. The coercion is capability-aware (a must-pick model
         // never receives "auto") and computed fresh here — it is never written
         // back to settings, so the intent survives switching models and back.
-        let validated_language =
-            effective_language_for_model(&settings, self.model_manager.as_ref(), &active_model);
-        if validated_language != settings.selected_language {
-            debug!(
-                "Language intent '{}' resolved to '{}' for model '{}'",
-                settings.selected_language, validated_language, active_model
-            );
-        }
+        let active_model_info = self.model_manager.get_model_info(&active_model);
+        let validated_language = match active_model_info.as_ref() {
+            Some(info) => crate::managers::model::effective_language(
+                &settings.selected_language,
+                &info.supported_languages,
+                info.supports_language_detection,
+            ),
+            None => settings.selected_language.clone(),
+        };
+        let engine_type = active_model_info
+            .as_ref()
+            .map(|info| format!("{:?}", info.engine_type))
+            .unwrap_or_else(|| "unknown".to_string());
+        info!(
+            "Transcription language plan: model='{}', engine={}, language_intent='{}', effective_language='{}', translate_to_english={}, post_process_enabled={}",
+            active_model,
+            engine_type,
+            settings.selected_language,
+            validated_language,
+            settings.translate_to_english,
+            settings.post_process_enabled
+        );
 
         // Whether the loaded transcribe-cpp model accepts a decode prompt
         // (whisper family). Gates the whisper-only run extension below, and
@@ -1191,9 +1205,9 @@ impl TranscriptionManager {
                 model_takes_initial_prompt = model.supports(Feature::InitialPrompt);
                 model_supports_translate = caps.supports_translate;
                 model_languages = caps.languages;
-                debug!(
+                info!(
                     "transcribe-cpp model '{}' on '{}': initial_prompt={}, translate={}, languages={:?}",
-                    settings.selected_model,
+                    active_model,
                     model.backend(),
                     model_takes_initial_prompt,
                     model_supports_translate,
@@ -1243,10 +1257,11 @@ impl TranscriptionManager {
                             ..Default::default()
                         };
 
-                        debug!(
-                            "transcribe-cpp run: task={:?}, language={:?}, initial_prompt={}",
+                        info!(
+                            "transcribe-cpp run: task={:?}, language={:?}, target_language={:?}, initial_prompt={}",
                             run_options.task,
                             run_options.language,
+                            run_options.target_language,
                             run_options.family.is_some()
                         );
 
@@ -1908,6 +1923,15 @@ mod tests {
         assert!(matches!(plan.task, Task::Translate));
         assert_eq!(plan.language.as_deref(), Some("es"));
         assert_eq!(plan.target_language.as_deref(), Some("en"));
+    }
+
+    #[test]
+    fn transcribe_cpp_run_plan_preserves_spanish_for_parakeet_tdt_v3() {
+        let plan = transcribe_cpp_run_plan(false, "es", &languages(&["en", "es"]), false);
+
+        assert!(matches!(plan.task, Task::Transcribe));
+        assert_eq!(plan.language.as_deref(), Some("es"));
+        assert_eq!(plan.target_language, None);
     }
 
     #[test]

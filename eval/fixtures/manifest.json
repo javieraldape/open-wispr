@@ -199,6 +199,13 @@
       "voice": "Paulina",
       "text": "Necesito más café para esta reunión tan larga",
       "terms": []
+    },
+    {
+      "id": "neg-09",
+      "split": "negative",
+      "voice": "Paulina",
+      "text": "Cuando termino una frase larga en español espero que la transcripción conserve el idioma original y no la cambie automáticamente al inglés",
+      "terms": []
     }
   ]
 }

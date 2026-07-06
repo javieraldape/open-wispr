@@ -661,6 +661,30 @@ fn should_send_auto_submit(auto_submit: bool, paste_method: PasteMethod) -> bool
     auto_submit && paste_method != PasteMethod::None
 }
 
+fn paste_method_requires_enigo(paste_method: PasteMethod, auto_submit: bool) -> bool {
+    matches!(
+        paste_method,
+        PasteMethod::CtrlV
+            | PasteMethod::CtrlShiftV
+            | PasteMethod::ShiftInsert
+            | PasteMethod::Direct
+    ) || should_send_auto_submit(auto_submit, paste_method)
+}
+
+fn with_enigo<R>(
+    app_handle: &AppHandle,
+    action: impl FnOnce(&mut Enigo) -> Result<R, String>,
+) -> Result<R, String> {
+    let enigo_state = app_handle
+        .try_state::<EnigoState>()
+        .ok_or("Enigo state not initialized")?;
+    let mut enigo = enigo_state
+        .0
+        .lock()
+        .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+    action(&mut enigo)
+}
+
 fn text_for_paste(text: String, append_trailing_space: bool) -> String {
     if !append_trailing_space
         || text.is_empty()
@@ -684,14 +708,11 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
         paste_method, paste_delay_ms
     );
 
-    // Get the managed Enigo instance
-    let enigo_state = app_handle
-        .try_state::<EnigoState>()
-        .ok_or("Enigo state not initialized")?;
-    let mut enigo = enigo_state
-        .0
-        .lock()
-        .map_err(|e| format!("Failed to lock Enigo: {}", e))?;
+    if paste_method_requires_enigo(paste_method, settings.auto_submit) {
+        app_handle
+            .try_state::<EnigoState>()
+            .ok_or("Enigo state not initialized")?;
+    }
 
     // Perform the paste operation
     match paste_method {
@@ -699,22 +720,26 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
             info!("PasteMethod::None selected - skipping paste action");
         }
         PasteMethod::Direct => {
-            paste_direct(
-                &mut enigo,
-                &text,
-                #[cfg(target_os = "linux")]
-                settings.typing_tool,
-            )?;
+            with_enigo(&app_handle, |enigo| {
+                paste_direct(
+                    enigo,
+                    &text,
+                    #[cfg(target_os = "linux")]
+                    settings.typing_tool,
+                )
+            })?;
         }
         PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
-            paste_via_clipboard(
-                &mut enigo,
-                &text,
-                &app_handle,
-                &paste_method,
-                paste_delay_ms,
-                settings.clipboard_handling,
-            )?
+            with_enigo(&app_handle, |enigo| {
+                paste_via_clipboard(
+                    enigo,
+                    &text,
+                    &app_handle,
+                    &paste_method,
+                    paste_delay_ms,
+                    settings.clipboard_handling,
+                )
+            })?
         }
         PasteMethod::ExternalScript => {
             let script_path = settings
@@ -728,7 +753,9 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
 
     if should_send_auto_submit(settings.auto_submit, paste_method) {
         std::thread::sleep(Duration::from_millis(50));
-        send_return_key(&mut enigo, settings.auto_submit_key)?;
+        with_enigo(&app_handle, |enigo| {
+            send_return_key(enigo, settings.auto_submit_key)
+        })?;
     }
 
     // After pasting, optionally copy to clipboard based on settings
@@ -763,6 +790,32 @@ mod tests {
         assert!(should_send_auto_submit(true, PasteMethod::Direct));
         assert!(should_send_auto_submit(true, PasteMethod::CtrlShiftV));
         assert!(should_send_auto_submit(true, PasteMethod::ShiftInsert));
+    }
+
+    #[test]
+    fn none_paste_method_does_not_require_enigo() {
+        assert!(!paste_method_requires_enigo(PasteMethod::None, false));
+        assert!(!paste_method_requires_enigo(PasteMethod::None, true));
+    }
+
+    #[test]
+    fn external_script_only_requires_enigo_for_auto_submit() {
+        assert!(!paste_method_requires_enigo(
+            PasteMethod::ExternalScript,
+            false
+        ));
+        assert!(paste_method_requires_enigo(
+            PasteMethod::ExternalScript,
+            true
+        ));
+    }
+
+    #[test]
+    fn keyboard_paste_methods_require_enigo() {
+        assert!(paste_method_requires_enigo(PasteMethod::CtrlV, false));
+        assert!(paste_method_requires_enigo(PasteMethod::CtrlShiftV, false));
+        assert!(paste_method_requires_enigo(PasteMethod::ShiftInsert, false));
+        assert!(paste_method_requires_enigo(PasteMethod::Direct, false));
     }
 
     #[test]

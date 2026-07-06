@@ -111,13 +111,11 @@ fn main() {
         serde_json::from_str(&fs::read_to_string(&args.manifest).expect("cannot read manifest"))
             .expect("manifest parse failed");
 
-    let settings_guard = SettingsGuard::backup(&args.settings_store);
     fs::create_dir_all(&args.out_dir).expect("cannot create out dir");
 
     let mut summaries: Vec<(String, String, ConfigReport)> = Vec::new();
 
     for language in &args.languages {
-        settings_guard.set_language(language);
         for model in &args.models {
             let short = model.rsplit('/').next().unwrap_or(model);
             eprintln!("\n=== config: model={short} language={language} ===");
@@ -130,7 +128,6 @@ fn main() {
             summaries.push((short.to_string(), language.clone(), report));
         }
     }
-    drop(settings_guard); // restore settings
 
     // ── Summary table ────────────────────────────────────────────────────
     println!("\n| model | lang | term recall raw→corr (exact) | false-rewrites | WER raw→corr | med. infer ms | med. RTF | GATE |");
@@ -179,7 +176,7 @@ fn run_config(args: &Args, manifest: &Manifest, model: &str, language: &str) -> 
 
     for f in &manifest.fixtures {
         let wav = args.audio_dir.join(format!("{}.wav", f.id));
-        match transcribe(&args.handy_bin, &wav, model, args.repeat) {
+        match transcribe(&args.handy_bin, &wav, model, language, args.repeat) {
             Ok(j) => {
                 eprintln!("  {}: {} ms  \"{}\"", f.id, j.best_ms, j.text.trim());
                 transcripts.push(Transcript {
@@ -472,9 +469,15 @@ fn edit_distance(a: &[String], b: &[String]) -> usize {
     dp[b.len()]
 }
 
-// ── Subprocess + settings plumbing ────────────────────────────────────────
+// ── Subprocess plumbing ───────────────────────────────────────────────────
 
-fn transcribe(handy_bin: &Path, wav: &Path, model: &str, repeat: usize) -> Result<CliJson, String> {
+fn transcribe(
+    handy_bin: &Path,
+    wav: &Path,
+    model: &str,
+    language: &str,
+    repeat: usize,
+) -> Result<CliJson, String> {
     if !wav.exists() {
         return Err(format!("missing wav {}", wav.display()));
     }
@@ -484,6 +487,8 @@ fn transcribe(handy_bin: &Path, wav: &Path, model: &str, repeat: usize) -> Resul
             wav.to_str().unwrap(),
             "--model",
             model,
+            "--language",
+            language,
             "--json",
             "--repeat",
             &repeat.to_string(),
@@ -515,56 +520,6 @@ fn transcribe(handy_bin: &Path, wav: &Path, model: &str, repeat: usize) -> Resul
         })
 }
 
-/// Backs up settings_store.json, lets configs set the language, restores on drop.
-struct SettingsGuard {
-    path: PathBuf,
-    original: Option<String>,
-}
-
-impl SettingsGuard {
-    fn backup(path: &Path) -> Self {
-        SettingsGuard {
-            path: path.to_path_buf(),
-            original: fs::read_to_string(path).ok(),
-        }
-    }
-    fn set_language(&self, language: &str) {
-        // The app reads AppSettings from the NESTED "settings" key of the
-        // tauri-plugin-store file (see settings.rs get_settings) — a top-level
-        // key is silently ignored. All AppSettings fields carry serde
-        // defaults, so a partial object under "settings" deserializes fine.
-        let mut store: BTreeMap<String, serde_json::Value> = self
-            .original
-            .as_deref()
-            .and_then(|s| serde_json::from_str(s).ok())
-            .unwrap_or_default();
-        let mut settings = store
-            .get("settings")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({}));
-        settings["selected_language"] = serde_json::Value::String(language.to_string());
-        store.insert("settings".to_string(), settings);
-        if let Some(parent) = self.path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        fs::write(&self.path, serde_json::to_string_pretty(&store).unwrap())
-            .expect("cannot write settings store");
-    }
-}
-
-impl Drop for SettingsGuard {
-    fn drop(&mut self) {
-        match &self.original {
-            Some(s) => {
-                let _ = fs::write(&self.path, s);
-            }
-            None => {
-                let _ = fs::remove_file(&self.path);
-            }
-        }
-    }
-}
-
 // ── Arg parsing (std-only; keep the bin dependency-free) ─────────────────
 
 struct Args {
@@ -574,7 +529,6 @@ struct Args {
     models: Vec<String>,
     languages: Vec<String>,
     out_dir: PathBuf,
-    settings_store: PathBuf,
     repeat: usize,
     run_tag: String,
 }
@@ -589,9 +543,6 @@ fn parse_args() -> Args {
             }
         }
     }
-    let home = std::env::var("HOME").expect("HOME not set");
-    let default_store =
-        format!("{home}/Library/Application Support/com.openwispr.app/settings_store.json");
     Args {
         manifest: map
             .get("manifest")
@@ -625,11 +576,6 @@ fn parse_args() -> Args {
             .get("out-dir")
             .cloned()
             .unwrap_or_else(|| "../eval/results".into())
-            .into(),
-        settings_store: map
-            .get("settings-store")
-            .cloned()
-            .unwrap_or(default_store)
             .into(),
         repeat: map.get("repeat").and_then(|s| s.parse().ok()).unwrap_or(1),
         run_tag: map

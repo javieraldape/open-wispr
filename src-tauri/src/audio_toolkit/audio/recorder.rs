@@ -30,6 +30,13 @@ enum AudioChunk {
     EndOfStream,
 }
 
+// Freshly built or ad-hoc signed macOS bundles can block inside CoreAudio while
+// macOS resolves microphone permission. The stream usually opens quickly after
+// permission settles, but a 5s timeout makes the first real recording fail.
+#[cfg(target_os = "macos")]
+const MICROPHONE_INIT_TIMEOUT: Duration = Duration::from_secs(360);
+
+#[cfg(not(target_os = "macos"))]
 const MICROPHONE_INIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How 16 kHz mono frames should be filtered for one recording session.
@@ -301,13 +308,20 @@ impl AudioRecorder {
                 };
                 Err(Box::new(Error::new(kind, error_message)))
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => Err(Box::new(Error::new(
-                std::io::ErrorKind::TimedOut,
-                format!(
-                    "Timed out initializing microphone stream after {:?}",
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                log::warn!(
+                    "Timed out initializing microphone stream after {:?}; queued worker shutdown",
                     MICROPHONE_INIT_TIMEOUT
-                ),
-            ))),
+                );
+                let _ = cmd_tx.send(Cmd::Shutdown);
+                Err(Box::new(Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!(
+                        "Timed out initializing microphone stream after {:?}",
+                        MICROPHONE_INIT_TIMEOUT
+                    ),
+                )))
+            }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 let _ = worker.join();
                 Err(Box::new(Error::other(
@@ -477,7 +491,9 @@ pub fn is_no_input_device_error(error_message: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_microphone_access_denied, is_no_input_device_error};
+    use std::time::Duration;
+
+    use super::{is_microphone_access_denied, is_no_input_device_error, MICROPHONE_INIT_TIMEOUT};
 
     #[test]
     fn detects_access_is_denied() {
@@ -515,6 +531,18 @@ mod tests {
     fn does_not_match_other_errors_for_no_device() {
         assert!(!is_no_input_device_error("permission denied"));
         assert!(!is_no_input_device_error("device not found"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn microphone_init_timeout_allows_slow_macos_permission_prompt() {
+        assert!(MICROPHONE_INIT_TIMEOUT >= Duration::from_secs(300));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn microphone_init_timeout_stays_short_off_macos() {
+        assert!(MICROPHONE_INIT_TIMEOUT <= Duration::from_secs(10));
     }
 }
 

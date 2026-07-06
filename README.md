@@ -18,7 +18,7 @@ The difference is memory. When a transcript gets a name, product, command, or bi
 
 - Transcribes locally on your computer.
 - Works from a global shortcut and pastes text into the active app.
-- Recommends Parakeet V3 for fast English and Spanish-friendly dictation on Apple Silicon Macs.
+- Recommends fast local models, including Parakeet TDT 0.6B v3 GGUF for explicit Spanish dictation on Apple Silicon Macs.
 - Lets you fix the last transcript and save the correction in one step.
 - Keeps a reviewable "Words it learned" list for personal vocabulary and custom terms.
 - Preserves Handy's cross-platform foundation while focusing this fork on the Mac v1 workflow first.
@@ -82,7 +82,7 @@ CMAKE_POLICY_VERSION_MINIMUM=3.5 bun run tauri dev
 1. Launch OpenWispr.
 2. Grant microphone access when macOS asks.
 3. Grant accessibility access so OpenWispr can type into other apps.
-4. Choose **Parakeet V3** unless you already know you need a different model.
+4. Choose your dictation language, then pick the recommended local model.
 5. Press your recording shortcut, speak, then release or toggle off.
 6. If the transcript is wrong, use **Fix Last Transcript**, save the corrected text, and let OpenWispr learn the changed words; the fix window closes itself after saving.
 7. Open **Words it learned** in settings to review or delete learned correction pairs.
@@ -107,7 +107,7 @@ OpenWispr is built on the Handy desktop app foundation:
 
 - **Frontend:** React, TypeScript, Tailwind CSS, Zustand, i18next
 - **Backend:** Rust, Tauri 2, cpal audio I/O, local model managers
-- **Speech models:** `transcribe-cpp` for Whisper-family models and `transcribe-rs` for ONNX models such as Parakeet
+- **Speech models:** `transcribe-cpp` for GGML/GGUF speech models and `transcribe-rs` for legacy ONNX models
 - **Correction layer:** token-level extraction, validation, persistence, and final text application in Rust
 
 Useful commands:
@@ -120,6 +120,24 @@ bun run tauri build      # Production desktop build
 bun run lint             # ESLint
 bun run format:check     # Prettier + cargo fmt check
 bun run check:translations
+```
+
+To manually test a local macOS bundle, build it, launch the bundle from this
+workspace, and verify the process path before testing dictation:
+
+```bash
+bun run tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
+open src-tauri/target/release/bundle/macos/OpenWispr.app
+pgrep -alf 'OpenWispr|handy'
+```
+
+The `pgrep` output should point at this workspace's
+`src-tauri/target/release/bundle/macos/OpenWispr.app/Contents/MacOS/handy`.
+If it points at another Conductor workspace, quit that app before testing the
+new build. For the Spanish preservation gate, run:
+
+```bash
+bash eval/check_language_preservation.sh
 ```
 
 For platform-specific build details, see [BUILD.md](BUILD.md). For contribution workflow, see [CONTRIBUTING.md](CONTRIBUTING.md). For translation guidance, see [CONTRIBUTING_TRANSLATIONS.md](CONTRIBUTING_TRANSLATIONS.md).
@@ -135,6 +153,13 @@ handy --cancel
 handy --start-hidden
 handy --no-tray
 handy --debug
+```
+
+Headless transcription can override the language for one process without
+changing saved settings:
+
+```bash
+handy --transcribe-file eval/audio/neg-09.wav --model <model-id> --language es --json
 ```
 
 On macOS app bundles, call the binary directly (note the executable name is `handy`):

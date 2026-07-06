@@ -4,10 +4,18 @@ import { toast } from "sonner";
 import { ChevronDown } from "lucide-react";
 import type { ModelInfo } from "@/bindings";
 import type { ModelCardStatus } from "./ModelCard";
-import ModelCard, { isLegacySource } from "./ModelCard";
+import ModelCard from "./ModelCard";
 import BrandLockup from "./BrandLockup";
 import StepProgress from "./StepProgress";
 import { useModelStore } from "../../stores/modelStore";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { getLanguageLabel } from "../../lib/constants/languages";
+import {
+  getOnboardingModelGroups,
+  isOnboardingLanguageIntent,
+  ONBOARDING_LANGUAGE_OPTIONS,
+  type OnboardingLanguageIntent,
+} from "./modelSelection";
 
 // Onboarding is 3 steps total (mic -> accessibility -> model, see App.tsx and
 // the v4 design spec's "Surface 5 — First run"). This is step 3; steps 1-2
@@ -34,31 +42,30 @@ const Onboarding: React.FC<OnboardingProps> = ({ onModelSelected }) => {
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const hasStartedSelection = useRef(false);
+  const settings = useSettingsStore((state) => state.settings);
+  const updateSetting = useSettingsStore((state) => state.updateSetting);
+  const isSavingLanguage = useSettingsStore(
+    (state) => state.isUpdating.selected_language || false,
+  );
+  const [languageIntent, setLanguageIntent] =
+    useState<OnboardingLanguageIntent>("auto");
 
-  const isBusy = selectedModelId !== null;
+  const isBusy = selectedModelId !== null || isSavingLanguage;
+
+  useEffect(() => {
+    if (isOnboardingLanguageIntent(settings?.selected_language)) {
+      setLanguageIntent(settings.selected_language);
+    }
+  }, [settings?.selected_language]);
 
   // Curate the download list: legacy (.bin/ONNX) downloads are deprecated and
   // never shown here (they still appear in the compatible section if already on
   // disk). The catalog ships 60+ models, so surfacing them all up front is
-  // overwhelming. Instead we pre-select a single recommended default — the
-  // "hero" — and hide the rest behind a collapsed disclosure.
+  // overwhelming. Instead we pre-select a language-aware default — the "hero" —
+  // and hide the rest behind a collapsed disclosure.
   const { downloadable, heroModel, otherModels } = useMemo(() => {
-    const downloadable = models.filter(
-      (m: ModelInfo) => !m.is_downloaded && !isLegacySource(m),
-    );
-    // `models` arrives in editorial rank order (backend sorts by rank_of, then
-    // accuracy), so the first recommended model is the intended default. Fall
-    // back to the first downloadable model so there is always a clear hero and
-    // the full catalog never dumps by default even if nothing is flagged.
-    const heroModel =
-      downloadable.find((m: ModelInfo) => m.is_recommended) ??
-      downloadable[0] ??
-      null;
-    const otherModels = heroModel
-      ? downloadable.filter((m: ModelInfo) => m.id !== heroModel.id)
-      : downloadable;
-    return { downloadable, heroModel, otherModels };
-  }, [models]);
+    return getOnboardingModelGroups(models, languageIntent);
+  }, [languageIntent, models]);
 
   // Watch for the selected model to finish downloading + verifying + extracting
   useEffect(() => {
@@ -118,6 +125,20 @@ const Onboarding: React.FC<OnboardingProps> = ({ onModelSelected }) => {
     setSelectedModelId(modelId);
   };
 
+  const handleLanguageIntentChange = async (
+    nextLanguageIntent: OnboardingLanguageIntent,
+  ) => {
+    setLanguageIntent(nextLanguageIntent);
+    await updateSetting("selected_language", nextLanguageIntent);
+  };
+
+  const getLanguageOptionLabel = (option: OnboardingLanguageIntent): string => {
+    if (option === "auto") {
+      return t("settings.general.language.auto");
+    }
+    return getLanguageLabel(option) ?? option;
+  };
+
   const getModelStatus = (modelId: string): ModelCardStatus => {
     if (modelId in extractingModels) return "extracting";
     if (modelId in verifyingModels) return "verifying";
@@ -158,6 +179,42 @@ const Onboarding: React.FC<OnboardingProps> = ({ onModelSelected }) => {
 
       <div className="max-w-[600px] w-full mx-auto text-center flex-1 flex flex-col min-h-0">
         <div className="space-y-6 pb-6">
+          <div className="space-y-2 text-left">
+            <h2 className="text-sm font-medium text-text/60">
+              {t("settings.general.language.title")}
+            </h2>
+            <div
+              className="grid grid-cols-3 gap-1 rounded-lg border border-mid-gray/20 bg-content-bg p-1"
+              role="radiogroup"
+              aria-label={t("settings.general.language.title")}
+            >
+              {ONBOARDING_LANGUAGE_OPTIONS.map((option) => {
+                const selected = languageIntent === option;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    disabled={selectedModelId !== null || isSavingLanguage}
+                    onClick={() => handleLanguageIntentChange(option)}
+                    className={`h-9 rounded-md px-3 text-sm font-medium transition-colors ${
+                      selected
+                        ? "bg-logo-primary text-white shadow-sm"
+                        : "text-text/70 hover:bg-logo-primary/10 hover:text-text"
+                    } ${
+                      selectedModelId !== null || isSavingLanguage
+                        ? "cursor-not-allowed opacity-60"
+                        : ""
+                    }`}
+                  >
+                    {getLanguageOptionLabel(option)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {models.some((m: ModelInfo) => m.is_downloaded) && (
             <div className="space-y-3">
               <div className="text-left">

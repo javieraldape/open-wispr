@@ -36,7 +36,7 @@
   "onboarding": {
     "modelStep": {
       "headline": "Pick your engine.",
-      "body": "Recommended: <b>Parakeet V3</b> — fast on any Apple Silicon Mac, speaks English + Spanish. 456 MB download, runs offline forever."
+      "body": "Choose the language you dictate in, then download a local model that matches it. For Spanish, OpenWispr recommends a model that keeps Spanish dictation in Spanish."
     },
     "existingModelsTitle": "Compatible Models",
     "downloadModelsTitle": "Available to Download",
@@ -71,7 +71,7 @@
       },
       "parakeet-tdt-0.6b-v3": {
         "name": "Parakeet V3",
-        "description": "Fast on any Apple Silicon Mac, speaks English + Spanish. 456 MB download, runs offline forever."
+        "description": "Legacy ONNX Parakeet path. English-only in this app."
       },
       "moonshine-base": {
         "name": "Moonshine Base",
