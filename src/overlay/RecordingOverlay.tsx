@@ -49,8 +49,8 @@ const ENERGY_ATTACK = 0.22;
 const ENERGY_RELEASE = 0.35;
 
 // How long the "linger" Edit pill stays up before the overlay would normally
-// hide, in milliseconds. Mirrors the design spec's "linger 4s" decision.
-const LINGER_MS = 4000;
+// hide, in milliseconds. Mirrors the design spec's "linger 2s" decision.
+const LINGER_MS = 2000;
 const FADE_MS = 200;
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
@@ -217,7 +217,7 @@ const RecordingOverlay: React.FC = () => {
   }, []);
 
   // Linger auto-hide: once in the "linger" state, fade back out on its own
-  // after LINGER_MS (design spec: "linger 4s"). Cleared/restarted whenever we
+  // after LINGER_MS (design spec: "linger 2s"). Cleared/restarted whenever we
   // (re-)enter linger; cancelled if the overlay is hidden or state changes away
   // from linger for any other reason.
   useEffect(() => {
