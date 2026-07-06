@@ -3,11 +3,7 @@ import { toast, Toaster } from "sonner";
 import { useTranslation } from "react-i18next";
 import { listen } from "@tauri-apps/api/event";
 import { platform } from "@tauri-apps/plugin-os";
-import {
-  checkAccessibilityPermission,
-  checkInputMonitoringPermission,
-  checkMicrophonePermission,
-} from "tauri-plugin-macos-permissions-api";
+import { checkMicrophonePermission } from "tauri-plugin-macos-permissions-api";
 import { ModelStateEvent, RecordingErrorEvent } from "./lib/types/events";
 import "./App.css";
 import AccessibilityPermissions from "./components/AccessibilityPermissions";
@@ -21,6 +17,10 @@ import { WhatsNewGate } from "./components/whats-new";
 import { useSettings } from "./hooks/useSettings";
 import { useSettingsStore } from "./stores/settingsStore";
 import { commands } from "@/bindings";
+import {
+  getMacOSKeyboardReadiness,
+  initializeMacOSKeyboardInput,
+} from "@/lib/utils/macosKeyboardReadiness";
 import { getLanguageDirection, initializeRTL } from "@/lib/utils/rtl";
 import { startWindowDrag } from "@/lib/utils/windowDrag";
 
@@ -46,20 +46,6 @@ const withTimeout = async <T,>(
     if (timeoutId) {
       clearTimeout(timeoutId);
     }
-  }
-};
-
-const initializeKeyboardInput = async (): Promise<boolean> => {
-  try {
-    const [enigoResult, shortcutsResult] = await Promise.all([
-      commands.initializeEnigo(),
-      commands.initializeShortcuts(),
-    ]);
-
-    return enigoResult.status === "ok" && shortcutsResult.status === "ok";
-  } catch (error) {
-    console.warn("Failed to initialize keyboard input:", error);
-    return false;
   }
 };
 
@@ -102,7 +88,7 @@ function App() {
   useEffect(() => {
     if (onboardingStep === "done" && !hasCompletedPostOnboardingInit.current) {
       hasCompletedPostOnboardingInit.current = true;
-      initializeKeyboardInput();
+      initializeMacOSKeyboardInput();
       refreshAudioDevices();
       refreshOutputDevices();
     }
@@ -230,17 +216,19 @@ function App() {
 
         if (currentPlatform === "macos") {
           try {
-            const [hasAccessibility, hasInputMonitoring, hasMicrophone] =
-              await withTimeout(
-                Promise.all([
-                  checkAccessibilityPermission(),
-                  checkInputMonitoringPermission(),
-                  checkMicrophonePermission(),
-                ]),
-                PERMISSION_CHECK_TIMEOUT_MS,
-                "macOS permission checks",
-              );
-            if (!hasAccessibility || !hasInputMonitoring || !hasMicrophone) {
+            const [keyboardReadiness, hasMicrophone] = await withTimeout(
+              Promise.all([
+                getMacOSKeyboardReadiness(),
+                checkMicrophonePermission(),
+              ]),
+              PERMISSION_CHECK_TIMEOUT_MS,
+              "macOS permission checks",
+            );
+            const hasKeyboardAccess =
+              keyboardReadiness.hasRawKeyboardPermissions ||
+              keyboardReadiness.isKeyboardOperational;
+
+            if (!hasMicrophone || !hasKeyboardAccess) {
               await revealMainWindowForPermissions();
               setOnboardingStep("accessibility");
               return;

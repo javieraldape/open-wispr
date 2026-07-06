@@ -31,7 +31,7 @@ use crate::tray;
 // Note: Commands are accessed via shortcut::handy_keys:: in lib.rs
 
 /// Initialize shortcuts using the configured implementation
-pub fn init_shortcuts(app: &AppHandle) {
+pub fn init_shortcuts(app: &AppHandle) -> Result<(), String> {
     let mut user_settings = settings::load_or_create_app_settings(app);
 
     // Check which implementation to use
@@ -44,10 +44,18 @@ pub fn init_shortcuts(app: &AppHandle) {
                 settings::write_settings(app, user_settings);
             }
             tauri_impl::init_shortcuts(app);
+            Ok(())
         }
         KeyboardImplementation::HandyKeys => {
             if let Err(e) = handy_keys::init_shortcuts(app) {
                 error!("Failed to initialize handy-keys shortcuts: {}", e);
+                if is_macos_accessibility_permission_error(&e) {
+                    warn!(
+                        "HandyKeys initialization failed because macOS Accessibility is not granted; preserving HandyKeys setting"
+                    );
+                    return Err(e);
+                }
+
                 // Fall back to Tauri implementation and persist this fallback
                 warn!("Falling back to Tauri global shortcut implementation and saving fallback to settings");
 
@@ -59,8 +67,18 @@ pub fn init_shortcuts(app: &AppHandle) {
 
                 tauri_impl::init_shortcuts(app);
             }
+            Ok(())
         }
     }
+}
+
+fn is_macos_accessibility_permission_error(error: &str) -> bool {
+    if !cfg!(target_os = "macos") {
+        return false;
+    }
+
+    let normalized = error.to_ascii_lowercase();
+    normalized.contains("accessibility permission") || normalized.contains("permission not granted")
 }
 
 /// Register the cancel shortcut (called when recording starts)
@@ -526,7 +544,8 @@ fn register_all_shortcuts_for_implementation(
     reset_bindings
 }
 
-/// Initialize HandyKeys if not already initialized, with rollback on failure
+/// Initialize HandyKeys if not already initialized, falling back only for
+/// backend failures that are not caused by missing macOS Accessibility trust.
 fn initialize_handy_keys_with_rollback(app: &AppHandle) -> Result<bool, String> {
     if app.try_state::<handy_keys::HandyKeysState>().is_some() {
         return Ok(false); // Already initialized, caller should continue
@@ -534,6 +553,13 @@ fn initialize_handy_keys_with_rollback(app: &AppHandle) -> Result<bool, String> 
 
     if let Err(e) = handy_keys::init_shortcuts(app) {
         error!("Failed to initialize HandyKeys: {}", e);
+        if is_macos_accessibility_permission_error(&e) {
+            warn!(
+                "HandyKeys initialization failed because macOS Accessibility is not granted; preserving HandyKeys setting"
+            );
+            return Err(format!("Failed to initialize HandyKeys: {}", e));
+        }
+
         // Rollback to Tauri
         let mut settings = settings::get_settings(app);
         settings.keyboard_implementation = KeyboardImplementation::Tauri;
@@ -1342,7 +1368,10 @@ pub async fn get_available_accelerators() -> crate::managers::transcription::Ava
 
 #[cfg(test)]
 mod tests {
-    use super::{default_binding_for_implementation, normalize_bindings_for_implementation};
+    use super::{
+        default_binding_for_implementation, is_macos_accessibility_permission_error,
+        normalize_bindings_for_implementation,
+    };
     use crate::settings::{self, KeyboardImplementation};
 
     #[cfg(target_os = "macos")]
@@ -1381,6 +1410,14 @@ mod tests {
 
         assert_eq!(binding.default_binding, "fn");
         assert_eq!(binding.current_binding, "fn");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_accessibility_error_does_not_trigger_persisted_backend_fallback() {
+        assert!(is_macos_accessibility_permission_error(
+            "Failed to create HotkeyManager: Accessibility permission not granted"
+        ));
     }
 
     #[cfg(target_os = "macos")]
