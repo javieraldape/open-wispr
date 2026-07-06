@@ -126,12 +126,30 @@ pub fn rank_of(model_id: &str) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::managers::model::DiskStatus;
     use crate::managers::model_capabilities::KNOWN_ARCHES;
     use std::collections::BTreeSet;
 
     #[test]
     fn catalog_parses_and_is_nonempty() {
         assert!(!CATALOG.is_empty(), "bundled catalog should contain models");
+    }
+
+    #[test]
+    fn parakeet_tdt_v3_gguf_is_spanish_capable_recommended_model() {
+        let descriptor = CATALOG
+            .iter()
+            .find(|d| {
+                d.id.starts_with("handy-computer/parakeet-tdt-0.6b-v3-gguf/")
+            })
+            .expect("catalog should include GGUF Parakeet TDT v3");
+        let info = descriptor.to_model_info(&DiskStatus::default());
+
+        assert!(matches!(info.engine_type, EngineType::TranscribeCpp));
+        assert!(info.is_recommended);
+        assert!(info.supports_language_selection);
+        assert!(info.supports_language_detection);
+        assert!(info.supported_languages.iter().any(|lang| lang == "es"));
     }
 
     #[test]

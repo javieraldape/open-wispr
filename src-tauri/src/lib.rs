@@ -480,6 +480,43 @@ fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
         return 2;
     }
 
+    let language_override = args.language.as_deref().map(str::trim);
+    if language_override.is_some_and(str::is_empty) {
+        eprintln!("error: --language cannot be empty");
+        return 2;
+    }
+
+    let _language_override_guard = language_override.map(|language| {
+        settings::push_runtime_settings_override(settings::RuntimeSettingsOverride {
+            selected_language: Some(language.to_string()),
+        })
+    });
+    let run_settings = get_settings(app);
+    let model_manager = app.state::<Arc<ModelManager>>();
+    let model_info = model_manager.get_model_info(&model_id);
+    let engine_type = model_info
+        .as_ref()
+        .map(|info| format!("{:?}", info.engine_type))
+        .unwrap_or_else(|| "unknown".to_string());
+    let effective_language = match model_info.as_ref() {
+        Some(info) => managers::model::effective_language(
+            &run_settings.selected_language,
+            &info.supported_languages,
+            info.supports_language_detection,
+        ),
+        None => run_settings.selected_language.clone(),
+    };
+    log::info!(
+        "Headless transcription settings: model='{}', engine={}, language_intent='{}', effective_language='{}', language_override={:?}, translate_to_english={}, post_process_enabled={}",
+        model_id,
+        engine_type,
+        run_settings.selected_language,
+        effective_language,
+        language_override,
+        run_settings.translate_to_english,
+        run_settings.post_process_enabled,
+    );
+
     // --device-index hard-selects a compute device by its --list-devices registry
     // index (transcribe-cpp / whisper-family models only; not persisted). Omit it
     // to use the persisted accelerator setting.
@@ -545,6 +582,11 @@ fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
                 "model": model_id,
                 "requested_device": requested_device,
                 "bound_backend": bound_backend,
+                "language_intent": run_settings.selected_language,
+                "effective_language": effective_language,
+                "language_override": language_override,
+                "translate_to_english": run_settings.translate_to_english,
+                "post_process_enabled": run_settings.post_process_enabled,
                 "audio_secs": audio_secs,
                 "load_ms": load_ms,
                 "transcribe_ms": times_ms,

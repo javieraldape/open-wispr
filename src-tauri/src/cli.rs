@@ -38,6 +38,11 @@ pub struct CliArgs {
     #[arg(long)]
     pub model: Option<String>,
 
+    /// Override the transcription language for --transcribe-file only. This is
+    /// process-local and does not update persisted settings.
+    #[arg(long, value_name = "LANGUAGE")]
+    pub language: Option<String>,
+
     /// Hard-select the compute device for --transcribe-file by its registry
     /// index (see --list-devices). Omit to use the persisted accelerator
     /// setting. transcribe-cpp (whisper-family) models only.

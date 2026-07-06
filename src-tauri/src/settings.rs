@@ -1,9 +1,11 @@
 use log::{debug, warn};
+use once_cell::sync::Lazy;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Mutex;
 use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 
@@ -750,6 +752,49 @@ fn ensure_post_process_defaults(settings: &mut AppSettings) -> bool {
 
 pub const SETTINGS_STORE_PATH: &str = "settings_store.json";
 
+#[derive(Debug, Clone, Default)]
+pub struct RuntimeSettingsOverride {
+    pub selected_language: Option<String>,
+}
+
+static RUNTIME_SETTINGS_OVERRIDE: Lazy<Mutex<Option<RuntimeSettingsOverride>>> =
+    Lazy::new(|| Mutex::new(None));
+
+pub struct RuntimeSettingsOverrideGuard {
+    previous: Option<RuntimeSettingsOverride>,
+}
+
+pub fn push_runtime_settings_override(
+    override_settings: RuntimeSettingsOverride,
+) -> RuntimeSettingsOverrideGuard {
+    let mut current = RUNTIME_SETTINGS_OVERRIDE.lock().unwrap();
+    let previous = current.replace(override_settings);
+    RuntimeSettingsOverrideGuard { previous }
+}
+
+fn apply_runtime_settings_override(settings: &mut AppSettings) {
+    let current = RUNTIME_SETTINGS_OVERRIDE.lock().unwrap();
+    if let Some(override_settings) = current.as_ref() {
+        apply_runtime_settings_override_value(settings, override_settings);
+    }
+}
+
+fn apply_runtime_settings_override_value(
+    settings: &mut AppSettings,
+    override_settings: &RuntimeSettingsOverride,
+) {
+    if let Some(language) = override_settings.selected_language.as_ref() {
+        settings.selected_language = language.clone();
+    }
+}
+
+impl Drop for RuntimeSettingsOverrideGuard {
+    fn drop(&mut self) {
+        let mut current = RUNTIME_SETTINGS_OVERRIDE.lock().unwrap();
+        *current = self.previous.take();
+    }
+}
+
 pub fn get_default_settings() -> AppSettings {
     #[cfg(target_os = "windows")]
     let default_shortcut = "ctrl+space";
@@ -947,6 +992,8 @@ pub fn load_or_create_app_settings(app: &AppHandle) -> AppSettings {
         store.set("settings", serde_json::to_value(&settings).unwrap());
     }
 
+    apply_runtime_settings_override(&mut settings);
+
     settings
 }
 
@@ -985,6 +1032,8 @@ pub fn get_settings(app: &AppHandle) -> AppSettings {
     if defaults_changed || keys_changed {
         store.set("settings", serde_json::to_value(&settings).unwrap());
     }
+
+    apply_runtime_settings_override(&mut settings);
 
     settings
 }
@@ -1126,6 +1175,19 @@ mod tests {
             settings.settings_schema_version,
             CURRENT_SETTINGS_SCHEMA_VERSION
         );
+    }
+
+    #[test]
+    fn runtime_override_can_replace_selected_language_without_persisting() {
+        let mut settings = get_default_settings();
+        let override_settings = RuntimeSettingsOverride {
+            selected_language: Some("es".to_string()),
+        };
+
+        apply_runtime_settings_override_value(&mut settings, &override_settings);
+
+        assert_eq!(settings.selected_language, "es");
+        assert_eq!(get_default_settings().selected_language, "auto");
     }
 
     #[cfg(target_os = "macos")]

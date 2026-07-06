@@ -22,6 +22,7 @@ import {
 } from "../../lib/constants/languages";
 import Badge from "../ui/Badge";
 import { Button } from "../ui/Button";
+import { isLegacySource } from "./modelSelection";
 
 // Get display text for model's language support
 const getLanguageDisplayText = (
@@ -38,11 +39,6 @@ const getLanguageDisplayText = (
     total: capabilityLanguages.length,
   });
 };
-
-// Legacy = a blob (Url-sourced) .bin/ONNX model, kept runnable but no longer the
-// advertised download (catalog GGUFs supersede it).
-export const isLegacySource = (model: ModelInfo): boolean =>
-  typeof model.source === "object" && "Url" in model.source;
 
 // Extract a GGUF quantization label from a filename, if present (e.g. "Q8_0").
 const getQuantLabel = (filename: string): string | null => {

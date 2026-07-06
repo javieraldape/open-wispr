@@ -685,22 +685,12 @@ impl ModelManager {
             },
         );
 
-        // Parakeet V3 supported languages (25 EU languages + Russian/Ukrainian):
-        // bg, hr, cs, da, nl, en, et, fi, fr, de, el, hu, it, lv, lt, mt, pl, pt, ro, sk, sl, es, sv, ru, uk
-        let parakeet_v3_languages: Vec<String> = vec![
-            "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv",
-            "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-
         available_models.insert(
             "parakeet-tdt-0.6b-v3".to_string(),
             ModelInfo {
                 id: "parakeet-tdt-0.6b-v3".to_string(),
                 name: "Parakeet V3".to_string(),
-                description: "Fast and accurate. Supports 25 European languages.".to_string(),
+                description: "Legacy ONNX Parakeet path. English-only in this app.".to_string(),
                 filename: "parakeet-tdt-0.6b-v3-int8".to_string(), // Directory name
                 source: ModelSource::Url {
                     url: "https://blob.handy.computer/parakeet-v3-int8.tar.gz".to_string(),
@@ -718,12 +708,12 @@ impl ModelManager {
                 accuracy_score: 0.80,
                 speed_score: 0.85,
                 supports_translation: false,
-                is_recommended: true,
-                supported_languages: parakeet_v3_languages,
+                is_recommended: false,
+                supported_languages: vec!["en".to_string()],
                 supports_language_selection: false,
                 is_custom: false,
                 supports_streaming: false,
-                supports_language_detection: true,
+                supports_language_detection: false,
             },
         );
 
